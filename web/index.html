@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trae Local AI Editor</title>
+  <link rel="stylesheet" href="/web/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Trae Local AI Editor（免登录 + 本地 Ollama）</h1>
+    <div class="toolbar">
+      <label>模型
+        <select id="modelSelect"></select>
+      </label>
+      <button id="refreshModels">刷新模型</button>
+      <button id="saveFile">保存文件</button>
+    </div>
+  </header>
+
+  <main>
+    <aside id="fileTree"></aside>
+
+    <section class="editor-pane">
+      <div class="file-meta">
+        <input id="filePath" placeholder="选择一个文件或输入新路径，例如 src/main.js" />
+      </div>
+      <textarea id="editor" spellcheck="false"></textarea>
+    </section>
+
+    <section class="chat-pane">
+      <div id="messages"></div>
+      <div class="chat-input">
+        <textarea id="prompt" placeholder="描述你希望 AI 如何修改当前文件，例如：将函数改成 async 并补充错误处理"></textarea>
+        <div class="chat-buttons">
+          <button id="askAI">让 AI 生成修改建议</button>
+          <button id="applyAI">应用到编辑器</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>

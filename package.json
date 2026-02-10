@@ -1,0 +1,11 @@
+{
+  "name": "trae-local-ai-editor",
+  "version": "0.1.0",
+  "description": "Local AI editor inspired by Codex/Trae, powered by Ollama without login",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "license": "MIT"
+}
