@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 3000;
 const WORKSPACE_ROOT = path.resolve(process.env.WORKSPACE_ROOT || process.cwd());
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
 const WEB_ROOT = path.join(__dirname, 'web');
+const HISTORY_ROOT = path.join(WORKSPACE_ROOT, '.trae-history');
 
 function safeWorkspacePath(requestPath = '') {
   const normalized = path.normalize(requestPath).replace(/^([/\\])+/, '');
@@ -24,6 +25,33 @@ function safeWebPath(requestPath = '') {
     throw new Error('Static path traversal is not allowed');
   }
   return resolved;
+}
+
+function encodeHistoryPath(fileRel) {
+  return fileRel.replaceAll('/', '__');
+}
+
+async function ensureHistoryRoot() {
+  await fsp.mkdir(HISTORY_ROOT, { recursive: true });
+}
+
+async function writeHistorySnapshot(fileRel, content) {
+  await ensureHistoryRoot();
+  const safeName = encodeHistoryPath(fileRel || 'untitled.txt');
+  const now = new Date().toISOString().replaceAll(':', '-');
+  const snapshotPath = path.join(HISTORY_ROOT, `${safeName}__${now}.txt`);
+  await fsp.writeFile(snapshotPath, content ?? '', 'utf8');
+}
+
+async function listHistorySnapshots(fileRel) {
+  await ensureHistoryRoot();
+  const safeName = encodeHistoryPath(fileRel);
+  const entries = await fsp.readdir(HISTORY_ROOT, { withFileTypes: true });
+  return entries
+    .filter((e) => e.isFile() && e.name.startsWith(`${safeName}__`) && e.name.endsWith('.txt'))
+    .map((e) => e.name)
+    .sort()
+    .reverse();
 }
 
 async function readJson(req) {
@@ -68,7 +96,7 @@ function sendFile(res, filePath) {
 async function listTree(dir, relBase = '') {
   const entries = await fsp.readdir(dir, { withFileTypes: true });
   const filtered = entries
-    .filter((e) => !['node_modules', '.git'].includes(e.name))
+    .filter((e) => !['node_modules', '.git', '.trae-history'].includes(e.name))
     .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name, 'zh-Hans-CN'));
 
   const out = [];
@@ -81,6 +109,35 @@ async function listTree(dir, relBase = '') {
     }
   }
   return out;
+}
+
+async function searchFiles(dir, keyword, relBase = '', maxResults = 100) {
+  const entries = await fsp.readdir(dir, { withFileTypes: true });
+  const result = [];
+  for (const entry of entries) {
+    if (['node_modules', '.git', '.trae-history'].includes(entry.name)) continue;
+    const relPath = path.posix.join(relBase, entry.name);
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const children = await searchFiles(fullPath, keyword, relPath, maxResults - result.length);
+      result.push(...children);
+    } else if (entry.isFile()) {
+      if (result.length >= maxResults) break;
+      try {
+        const content = await fsp.readFile(fullPath, 'utf8');
+        const index = content.toLowerCase().indexOf(keyword.toLowerCase());
+        if (index >= 0) {
+          const start = Math.max(0, index - 40);
+          const end = Math.min(content.length, index + 80);
+          result.push({ path: relPath, snippet: content.slice(start, end).replaceAll('\n', ' ') });
+        }
+      } catch {
+        // skip binary or unreadable files
+      }
+    }
+    if (result.length >= maxResults) break;
+  }
+  return result;
 }
 
 async function proxyOllamaChat(payload) {
@@ -118,10 +175,63 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && req.url === '/api/file') {
       const data = await readJson(req);
-      const full = safeWorkspacePath(data.path || '');
+      const relPath = data.path || '';
+      const full = safeWorkspacePath(relPath);
+
+      let previousContent = '';
+      try {
+        previousContent = await fsp.readFile(full, 'utf8');
+      } catch {
+        previousContent = '';
+      }
+      await writeHistorySnapshot(relPath, previousContent);
+
       await fsp.mkdir(path.dirname(full), { recursive: true });
       await fsp.writeFile(full, data.content ?? '', 'utf8');
       return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/file/rename') {
+      const data = await readJson(req);
+      const oldPath = safeWorkspacePath(data.oldPath || '');
+      const newPath = safeWorkspacePath(data.newPath || '');
+      await fsp.mkdir(path.dirname(newPath), { recursive: true });
+      await fsp.rename(oldPath, newPath);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/file/delete') {
+      const data = await readJson(req);
+      const full = safeWorkspacePath(data.path || '');
+      await fsp.rm(full, { recursive: true, force: true });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === 'GET' && req.url.startsWith('/api/history?')) {
+      const relPath = new URL(req.url, `http://${req.headers.host}`).searchParams.get('path') || '';
+      const snapshots = await listHistorySnapshots(relPath);
+      return sendJson(res, 200, { snapshots });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/history/restore') {
+      const data = await readJson(req);
+      const relPath = data.path || '';
+      const targetFile = safeWorkspacePath(relPath);
+      const snapshotName = data.snapshot || '';
+      const snapshotPath = path.resolve(HISTORY_ROOT, snapshotName);
+      if (!snapshotPath.startsWith(HISTORY_ROOT)) {
+        return sendJson(res, 400, { error: 'invalid snapshot' });
+      }
+      const content = await fsp.readFile(snapshotPath, 'utf8');
+      await fsp.writeFile(targetFile, content, 'utf8');
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === 'GET' && req.url.startsWith('/api/search?')) {
+      const keyword = new URL(req.url, `http://${req.headers.host}`).searchParams.get('q') || '';
+      if (!keyword.trim()) return sendJson(res, 200, { results: [] });
+      const results = await searchFiles(WORKSPACE_ROOT, keyword.trim());
+      return sendJson(res, 200, { results });
     }
 
     if (req.method === 'GET' && req.url === '/api/models') {

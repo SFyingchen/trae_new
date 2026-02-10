@@ -13,7 +13,12 @@
       <label>模型
         <select id="modelSelect"></select>
       </label>
+      <input id="searchInput" placeholder="全局搜索关键字" />
+      <button id="searchBtn">搜索</button>
       <button id="refreshModels">刷新模型</button>
+      <button id="newFile">新建文件</button>
+      <button id="renameFile">重命名</button>
+      <button id="deleteFile">删除</button>
       <button id="saveFile">保存文件</button>
     </div>
   </header>
@@ -22,10 +27,13 @@
     <aside id="fileTree"></aside>
 
     <section class="editor-pane">
+      <div class="tabs" id="tabs"></div>
       <div class="file-meta">
         <input id="filePath" placeholder="选择一个文件或输入新路径，例如 src/main.js" />
+        <button id="loadHistory">历史版本</button>
       </div>
       <textarea id="editor" spellcheck="false"></textarea>
+      <div id="searchResults" class="search-results"></div>
     </section>
 
     <section class="chat-pane">
