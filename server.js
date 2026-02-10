@@ -14,6 +14,8 @@ const WEB_ROOT = path.join(__dirname, 'web');
 const HISTORY_ROOT = path.join(WORKSPACE_ROOT, '.trae-history');
 const ALLOW_DANGEROUS_COMMANDS = process.env.ALLOW_DANGEROUS_COMMANDS === 'true';
 const agentSessions = new Map();
+const MAX_AGENT_STEPS = 12;
+const MAX_AGENT_CONTEXT = 7000;
 
 function safeWorkspacePath(requestPath = '') {
   const normalized = path.normalize(requestPath).replace(/^([/\\])+/, '');
@@ -274,6 +276,139 @@ ${String(context).slice(0, 6000)}`
   return { parsed, raw };
 }
 
+function createAgentSession(data = {}) {
+  const maxSteps = Math.min(MAX_AGENT_STEPS, Math.max(1, Number(data.maxSteps || 4)));
+  const now = new Date().toISOString();
+  return {
+    id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    model: data.model,
+    goal: String(data.goal || '').trim(),
+    baseContext: String(data.context || '').slice(0, MAX_AGENT_CONTEXT),
+    provider: data.provider || 'ollama',
+    providerConfig: data.providerConfig || {},
+    options: data.options || {},
+    allowWrite: Boolean(data.allowWrite),
+    allowTerminal: Boolean(data.allowTerminal),
+    requireApproval: data.requireApproval !== false,
+    maxSteps,
+    step: 0,
+    status: 'running',
+    done: false,
+    createdAt: now,
+    updatedAt: now,
+    pendingStep: null,
+    pendingActions: [],
+    trace: [],
+    summary: 'Session created'
+  };
+}
+
+function toHistoryForPrompt(session) {
+  const compact = session.trace.slice(-5).map((t) => ({
+    step: t.step,
+    summary: t.summary || '',
+    actions: (t.actions || []).map((a) => ({ type: a.type, path: a.path, command: a.command, reason: a.reason })),
+    actionResults: (t.actionResults || []).map((r) => ({ type: r.type, status: r.status, path: r.path, command: r.command, error: r.error }))
+  }));
+  return JSON.stringify(compact).slice(0, MAX_AGENT_CONTEXT);
+}
+
+async function generateAgentStepForSession(session) {
+  if (session.done || session.status === 'stopped') return session;
+  if (session.step >= session.maxSteps) {
+    session.done = true;
+    session.status = 'completed';
+    session.summary = `Reached max steps (${session.maxSteps})`;
+    session.updatedAt = new Date().toISOString();
+    return session;
+  }
+
+  const context = [
+    session.baseContext,
+    `会话历史(最近5步): ${toHistoryForPrompt(session)}`
+  ].filter(Boolean).join('\n\n').slice(0, MAX_AGENT_CONTEXT);
+
+  const { parsed, raw } = await runSingleAgentStep({
+    model: session.model,
+    goal: session.goal,
+    context,
+    options: session.options || {},
+    provider: session.provider || 'ollama',
+    providerConfig: session.providerConfig || {}
+  });
+
+  session.step += 1;
+  session.pendingStep = session.step;
+  session.pendingActions = Array.isArray(parsed.next_actions) ? parsed.next_actions : [];
+  session.summary = parsed.summary || '';
+  session.trace.push({
+    step: session.step,
+    summary: parsed.summary || '',
+    actions: session.pendingActions,
+    actionResults: [],
+    done: Boolean(parsed.done),
+    raw: String(raw).slice(0, 1400)
+  });
+
+  const hasExecutableActions = session.pendingActions.some((a) => a.type === 'edit' || a.type === 'terminal');
+  if (session.requireApproval && hasExecutableActions) {
+    session.status = 'waiting_approval';
+  } else {
+    const actionResults = await executeAgentActions(session.pendingActions, {
+      allowWrite: session.allowWrite,
+      allowTerminal: session.allowTerminal
+    });
+    session.trace[session.trace.length - 1].actionResults = actionResults;
+    session.pendingActions = [];
+    session.pendingStep = null;
+    session.status = parsed.done ? 'completed' : 'running';
+  }
+
+  if (parsed.done) {
+    session.done = true;
+    session.status = 'completed';
+    session.pendingActions = [];
+    session.pendingStep = null;
+  }
+
+  if (!session.done && session.step >= session.maxSteps && session.status !== 'waiting_approval') {
+    session.done = true;
+    session.status = 'completed';
+    session.summary = `Reached max steps (${session.maxSteps})`;
+  }
+
+  session.updatedAt = new Date().toISOString();
+  return session;
+}
+
+function compactSession(session) {
+  return {
+    id: session.id,
+    goal: session.goal,
+    model: session.model,
+    provider: session.provider,
+    status: session.status,
+    done: session.done,
+    step: session.step,
+    maxSteps: session.maxSteps,
+    requireApproval: session.requireApproval,
+    allowWrite: session.allowWrite,
+    allowTerminal: session.allowTerminal,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    summary: session.summary,
+    pendingStep: session.pendingStep,
+    pendingActions: session.pendingActions,
+    trace: session.trace
+  };
+}
+
+function getSessionOrThrow(sessionId) {
+  const session = agentSessions.get(String(sessionId || ''));
+  if (!session) throw new Error('agent session not found');
+  return session;
+}
+
 async function executeAgentActions(actions, opts = {}) {
   const { allowWrite = false, allowTerminal = false } = opts;
   const results = [];
@@ -449,6 +584,88 @@ ${JSON.stringify(actionResults).slice(0, 2000)}`;
     if (req.method === 'GET' && req.url === '/api/agent/runs') {
       const runs = [...agentSessions.values()].slice(-20).reverse();
       return sendJson(res, 200, { runs });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/agent/session/start') {
+      const data = await readJson(req);
+      if (!data.model) return sendJson(res, 400, { error: 'model is required' });
+      const goal = String(data.goal || '').trim();
+      if (!goal) return sendJson(res, 400, { error: 'goal is required' });
+      const session = createAgentSession(data);
+      session.goal = goal;
+      agentSessions.set(session.id, session);
+      await generateAgentStepForSession(session);
+      return sendJson(res, 200, { session: compactSession(session) });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/agent/session/next') {
+      const data = await readJson(req);
+      const session = getSessionOrThrow(data.sessionId);
+      if (session.status === 'waiting_approval') return sendJson(res, 400, { error: 'pending actions require approval first' });
+      if (session.status === 'completed' || session.status === 'stopped') return sendJson(res, 200, { session: compactSession(session) });
+      await generateAgentStepForSession(session);
+      return sendJson(res, 200, { session: compactSession(session) });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/agent/session/approve') {
+      const data = await readJson(req);
+      const session = getSessionOrThrow(data.sessionId);
+      if (session.status !== 'waiting_approval') return sendJson(res, 400, { error: 'session is not waiting for approval' });
+      const selectedIndexes = Array.isArray(data.selectedIndexes) ? data.selectedIndexes.map(Number).filter((n) => Number.isInteger(n) && n >= 0) : [];
+      const selected = selectedIndexes.length ? selectedIndexes.map((i) => session.pendingActions[i]).filter(Boolean) : session.pendingActions;
+      const actionResults = await executeAgentActions(selected, {
+        allowWrite: session.allowWrite,
+        allowTerminal: session.allowTerminal
+      });
+      const currentTrace = session.trace[session.trace.length - 1];
+      if (currentTrace) currentTrace.actionResults = actionResults;
+      session.pendingActions = [];
+      session.pendingStep = null;
+      if (session.done || session.step >= session.maxSteps) {
+        session.done = true;
+        session.status = 'completed';
+      } else {
+        session.status = 'running';
+      }
+      session.updatedAt = new Date().toISOString();
+      return sendJson(res, 200, { session: compactSession(session) });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/agent/session/reject') {
+      const data = await readJson(req);
+      const session = getSessionOrThrow(data.sessionId);
+      if (session.status !== 'waiting_approval') return sendJson(res, 400, { error: 'session is not waiting for approval' });
+      const currentTrace = session.trace[session.trace.length - 1];
+      if (currentTrace) {
+        currentTrace.actionResults = (session.pendingActions || []).map((a) => ({ type: a.type || 'unknown', status: 'rejected' }));
+      }
+      session.pendingActions = [];
+      session.pendingStep = null;
+      session.status = 'running';
+      session.updatedAt = new Date().toISOString();
+      return sendJson(res, 200, { session: compactSession(session) });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/agent/session/stop') {
+      const data = await readJson(req);
+      const session = getSessionOrThrow(data.sessionId);
+      session.status = 'stopped';
+      session.done = true;
+      session.pendingActions = [];
+      session.pendingStep = null;
+      session.updatedAt = new Date().toISOString();
+      return sendJson(res, 200, { session: compactSession(session) });
+    }
+
+    if (req.method === 'GET' && req.url.startsWith('/api/agent/session?')) {
+      const sessionId = new URL(req.url, `http://${req.headers.host}`).searchParams.get('id') || '';
+      const session = getSessionOrThrow(sessionId);
+      return sendJson(res, 200, { session: compactSession(session) });
+    }
+
+    if (req.method === 'GET' && req.url === '/api/agent/sessions') {
+      const sessions = [...agentSessions.values()].slice(-20).reverse().map(compactSession);
+      return sendJson(res, 200, { sessions });
     }
 
 

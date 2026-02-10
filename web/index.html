@@ -116,10 +116,21 @@
           <button id="agentRun">自动执行 N 步</button>
           <label><input type="checkbox" id="agentAllowWrite" checked /> 允许写文件</label>
           <label><input type="checkbox" id="agentAllowTerminal" /> 允许终端</label>
-          <input id="agentMaxSteps" type="number" min="1" max="10" value="3" style="width:90px" />
+          <label><input type="checkbox" id="agentRequireApproval" checked /> 执行动作前确认</label>
+          <input id="agentMaxSteps" type="number" min="1" max="12" value="3" style="width:90px" />
+        </div>
+        <div class="agent-actions">
+          <button id="agentSessionStart">开始会话</button>
+          <button id="agentSessionNext">继续下一步</button>
+          <button id="agentSessionApprove">批准并执行</button>
+          <button id="agentSessionReject">拒绝本步动作</button>
+          <button id="agentSessionStop">停止会话</button>
+          <input id="agentSessionId" placeholder="session id" style="min-width:220px" />
+          <button id="agentSessionRefresh">刷新会话列表</button>
         </div>
         <div id="agentSummary" class="agent-summary">暂无 Agent 结果</div>
         <div id="agentActions" class="task-list">暂无动作</div>
+        <div id="agentSessions" class="task-list">暂无会话</div>
         <div id="agentRunTrace" class="task-list">暂无自动执行记录</div>
       </section>
       <div id="messages"></div>

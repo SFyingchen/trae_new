@@ -80,6 +80,15 @@ const agentAllowWrite = el('agentAllowWrite');
 const agentAllowTerminal = el('agentAllowTerminal');
 const agentMaxSteps = el('agentMaxSteps');
 const agentRunTrace = el('agentRunTrace');
+const agentRequireApproval = el('agentRequireApproval');
+const agentSessionStartBtn = el('agentSessionStart');
+const agentSessionNextBtn = el('agentSessionNext');
+const agentSessionApproveBtn = el('agentSessionApprove');
+const agentSessionRejectBtn = el('agentSessionReject');
+const agentSessionStopBtn = el('agentSessionStop');
+const agentSessionIdInput = el('agentSessionId');
+const agentSessionRefreshBtn = el('agentSessionRefresh');
+const agentSessionsEl = el('agentSessions');
 
 let latestSuggestedCode = '';
 let latestAssistantRaw = '';
@@ -95,6 +104,7 @@ const multiFileChanges = [];
 const terminalSessions = [{ id: 1, title: '终端 1', cwd: '.', output: '' }];
 let activeTerminalId = 1;
 let latestAgent = null;
+let currentAgentSession = null;
 const settings = {
   temperature: Number(localStorage.getItem('temperature') || 0.2),
   systemPrompt: localStorage.getItem('systemPrompt') || '你是一个编程助手，输出清晰说明和完整 updated_code 代码块。',
@@ -337,8 +347,51 @@ function renderAgentRunTrace(session) {
   }
   agentRunTrace.innerHTML = session.trace.map((t) => {
     const rows = (t.actionResults || []).map((r) => `${r.type}:${r.status}${r.path ? ` (${r.path})` : ''}${r.command ? ` (${r.command})` : ''}`).join(' | ');
-    return `<div class="task-item"><strong>Step ${t.step}</strong> - ${escapeHtml(t.summary || '')}<div>${escapeHtml(rows)}</div></div>`;
+    return `<div class="task-item"><strong>Step ${t.step}</strong> - ${escapeHtml(t.summary || '')}<div>${escapeHtml(rows || '等待执行/确认')}</div></div>`;
   }).join('');
+}
+
+function renderAgentSessions(sessions = []) {
+  if (!sessions.length) {
+    agentSessionsEl.innerHTML = '暂无会话';
+    return;
+  }
+  agentSessionsEl.innerHTML = sessions.map((session) => `<div class="task-item"><button data-sid="${escapeHtml(session.id)}">载入</button> <strong>${escapeHtml(session.id)}</strong> [${escapeHtml(session.status)}] Step ${session.step}/${session.maxSteps}<div>${escapeHtml(session.goal || '')}</div></div>`).join('');
+  agentSessionsEl.querySelectorAll('button[data-sid]').forEach((btn) => {
+    btn.onclick = () => {
+      agentSessionIdInput.value = btn.dataset.sid;
+      loadAgentSession(btn.dataset.sid).catch((e) => notify(`加载会话失败: ${e.message}`));
+    };
+  });
+}
+
+function renderCurrentAgentSession(session) {
+  currentAgentSession = session || null;
+  if (!session) {
+    agentSummary.textContent = '暂无 Agent 结果';
+    latestAgent = null;
+    renderAgentActions();
+    renderAgentRunTrace(null);
+    return;
+  }
+  agentSessionIdInput.value = session.id || '';
+  agentSummary.textContent = `会话 ${session.id}
+状态: ${session.status} · Step ${session.step}/${session.maxSteps}${session.done ? ' · 已完成' : ''}
+${session.summary || ''}`;
+  latestAgent = { next_actions: session.pendingActions || [], summary: session.summary || '', done: session.done };
+  renderAgentActions();
+  renderAgentRunTrace(session);
+}
+
+async function refreshAgentSessions() {
+  const data = await api('/api/agent/sessions');
+  renderAgentSessions(data.sessions || []);
+}
+
+async function loadAgentSession(sessionId) {
+  if (!sessionId) return;
+  const data = await api(`/api/agent/session?id=${encodeURIComponent(sessionId)}`);
+  renderCurrentAgentSession(data.session || null);
 }
 
 async function runAgentStep() {
@@ -401,6 +454,75 @@ ${taskPlan.map((t, i) => `${i + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n
   renderAgentRunTrace(session);
   notify(`Agent 自动执行完成：${session.trace?.length || 0} 步`);
   await loadTree();
+}
+
+
+async function startAgentSession() {
+  const goal = goalInput.value.trim();
+  const model = modelSelect.value;
+  if (!goal) return alert('请先输入 Agent 目标');
+  if (!model) return alert('请先选择模型');
+  const context = [
+    `当前文件: ${filePathInput.value || 'untitled.txt'}`,
+    `当前代码:
+${editor.value.slice(0, 3000)}`,
+    `任务计划:
+${taskPlan.map((t, i) => `${i + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n')}`
+  ].join('\n\n');
+
+  const res = await api('/api/agent/session/start', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...currentProviderPayload(),
+      model,
+      goal,
+      context,
+      maxSteps: Number(agentMaxSteps.value || 3),
+      allowWrite: Boolean(agentAllowWrite.checked),
+      allowTerminal: Boolean(agentAllowTerminal.checked),
+      requireApproval: Boolean(agentRequireApproval.checked),
+      options: { temperature: Number(settings.temperature || 0.2) }
+    })
+  });
+  renderCurrentAgentSession(res.session || null);
+  await refreshAgentSessions();
+}
+
+async function nextAgentSessionStep() {
+  const sessionId = agentSessionIdInput.value.trim();
+  if (!sessionId) return alert('请先选择或输入 session id');
+  const res = await api('/api/agent/session/next', { method: 'POST', body: JSON.stringify({ sessionId }) });
+  renderCurrentAgentSession(res.session || null);
+  await refreshAgentSessions();
+}
+
+async function approveAgentSessionStep() {
+  const sessionId = agentSessionIdInput.value.trim();
+  if (!sessionId) return alert('请先选择或输入 session id');
+  const selectedIndexes = [];
+  agentActionsEl.querySelectorAll('input[type="checkbox"][data-i]').forEach((c) => {
+    if (c.checked) selectedIndexes.push(Number(c.dataset.i));
+  });
+  const res = await api('/api/agent/session/approve', { method: 'POST', body: JSON.stringify({ sessionId, selectedIndexes }) });
+  renderCurrentAgentSession(res.session || null);
+  await refreshAgentSessions();
+  await loadTree();
+}
+
+async function rejectAgentSessionStep() {
+  const sessionId = agentSessionIdInput.value.trim();
+  if (!sessionId) return alert('请先选择或输入 session id');
+  const res = await api('/api/agent/session/reject', { method: 'POST', body: JSON.stringify({ sessionId }) });
+  renderCurrentAgentSession(res.session || null);
+  await refreshAgentSessions();
+}
+
+async function stopAgentSession() {
+  const sessionId = agentSessionIdInput.value.trim();
+  if (!sessionId) return alert('请先选择或输入 session id');
+  const res = await api('/api/agent/session/stop', { method: 'POST', body: JSON.stringify({ sessionId }) });
+  renderCurrentAgentSession(res.session || null);
+  await refreshAgentSessions();
 }
 
 async function applyAgentActions() {
@@ -731,6 +853,8 @@ const commands = [
   { name: 'Agent 下一步', run: () => agentStepBtn.click() },
   { name: '应用 Agent 动作', run: () => agentApplyBtn.click() },
   { name: 'Agent 自动执行N步', run: () => agentRunBtn.click() },
+  { name: 'Agent 会话: 开始', run: () => agentSessionStartBtn.click() },
+  { name: 'Agent 会话: 下一步', run: () => agentSessionNextBtn.click() },
   { name: '解析多文件建议', run: () => parseMultiFileBtn.click() },
   { name: '批量应用多文件建议', run: () => applyMultiFileBtn.click() },
   { name: '切换终端', run: () => toggleTerminalBtn.click() },
@@ -794,6 +918,12 @@ closeFindBtn.onclick = () => findPanel.classList.add('hidden');
 agentStepBtn.onclick = () => runAgentStep().catch((e) => alert(`Agent 执行失败: ${e.message}`));
 agentApplyBtn.onclick = () => applyAgentActions().catch((e) => alert(`应用 Agent 动作失败: ${e.message}`));
 agentRunBtn.onclick = () => runAgentAuto().catch((e) => notify(`Agent 自动执行失败: ${e.message}`));
+agentSessionStartBtn.onclick = () => startAgentSession().catch((e) => notify(`Agent 会话启动失败: ${e.message}`));
+agentSessionNextBtn.onclick = () => nextAgentSessionStep().catch((e) => notify(`Agent 会话继续失败: ${e.message}`));
+agentSessionApproveBtn.onclick = () => approveAgentSessionStep().catch((e) => notify(`批准动作失败: ${e.message}`));
+agentSessionRejectBtn.onclick = () => rejectAgentSessionStep().catch((e) => notify(`拒绝动作失败: ${e.message}`));
+agentSessionStopBtn.onclick = () => stopAgentSession().catch((e) => notify(`停止会话失败: ${e.message}`));
+agentSessionRefreshBtn.onclick = () => refreshAgentSessions().catch((e) => notify(`刷新会话失败: ${e.message}`));
 
 editor.addEventListener('input', () => {
   markDirty(true);
@@ -894,6 +1024,7 @@ renderTaskPlan();
 renderMultiFileList();
 renderAgentActions();
 renderAgentRunTrace(null);
+refreshAgentSessions().catch((e) => notify(`刷新会话失败: ${e.message}`));
 renderTerminalTabs();
 setInlineSuggestion('');
 updateLineNumbers();
