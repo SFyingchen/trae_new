@@ -103,3 +103,13 @@ ollama pull qwen2.5-coder:7b
 - 在右侧新增 Agent 面板，可按目标生成下一步动作（edit / terminal / ask_user）。
 - 支持选择性应用 Agent 动作（含多文件编辑与终端命令确认）。
 - 说明：当前是本地单 Agent 版本，非完整 VSCode 全量插件生态。
+
+
+## 新增能力（继续向 VSCode + Agent 靠拢）
+
+- 多终端会话（可新建终端标签）
+- AI 实时补全预测（Ctrl/Cmd+Space 触发，Tab 接受）
+- 终端报错 AI 诊断（基于最新错误输出）
+- Agent 动作流（edit / terminal / ask_user）并可选择性执行
+
+> 注意：要做到“和 VSCode 一模一样”还需要完整插件市场、调试器协议、语言服务器生态等大量能力。本项目当前是本地可安装 IDE + AI Agent 的增强实现。

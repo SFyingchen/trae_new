@@ -49,6 +49,7 @@
         <textarea id="editor" spellcheck="false"></textarea>
       </div>
       <div id="statusBar" class="status-bar">Ln 1, Col 1 · UTF-8 · Spaces: 2 · txt · Saved</div>
+      <div id="inlineSuggest" class="inline-suggest">补全建议：无（Ctrl+Space 触发，Tab 接受）</div>
 
       <div id="searchResults" class="search-results"></div>
 
@@ -80,10 +81,13 @@
       </section>
 
       <section id="terminalPanel" class="terminal-panel hidden">
+        <div class="terminal-tabs" id="terminalTabs"></div>
         <div class="terminal-toolbar">
+          <button id="newTerminalTab">新建终端</button>
           <input id="terminalCwd" value="." />
           <input id="terminalCommand" placeholder="输入终端命令，例如 npm test" />
           <button id="runTerminal">运行（需确认）</button>
+          <button id="diagnoseTerminalError">AI 诊断错误</button>
         </div>
         <pre id="terminalOutput"></pre>
       </section>

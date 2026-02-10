@@ -11,6 +11,7 @@ function createMenu() {
       label: '文件',
       submenu: [
         { role: 'reload', label: '重新加载' },
+        { label: '新建窗口', click: () => createWindow() },
         { role: 'forcereload', label: '强制重新加载' },
         { type: 'separator' },
         { role: 'quit', label: '退出' }

@@ -320,6 +320,61 @@ ${context}`
       return sendJson(res, 200, { agent: parsed, raw });
     }
 
+
+    if (req.method === 'POST' && req.url === '/api/complete') {
+      const data = await readJson(req);
+      if (!data.model) return sendJson(res, 400, { error: 'model is required' });
+      const code = String(data.code || '').slice(0, 8000);
+      const cursorContext = String(data.cursorContext || '').slice(0, 1500);
+      const response = await proxyOllamaChat({
+        model: data.model,
+        options: data.options || {},
+        messages: [
+          {
+            role: 'system',
+            content: '你是代码补全引擎。只返回要补全的后续代码，不要解释，不要markdown，不要代码块标记。'
+          },
+          {
+            role: 'user',
+            content: `以下是当前文件代码（可能不完整）:
+${code}
+
+光标附近上下文:
+${cursorContext}
+
+请给出下一段最可能补全（尽量简短）。`
+          }
+        ]
+      });
+      const suggestion = (response?.message?.content || '').trim();
+      return sendJson(res, 200, { suggestion });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/diagnose-error') {
+      const data = await readJson(req);
+      if (!data.model) return sendJson(res, 400, { error: 'model is required' });
+      const stderr = String(data.stderr || '').slice(0, 12000);
+      const command = String(data.command || '');
+      const response = await proxyOllamaChat({
+        model: data.model,
+        options: data.options || {},
+        messages: [
+          {
+            role: 'system',
+            content: '你是命令行报错诊断助手。输出中文，包含：1) 根因分析 2) 修复步骤 3) 可直接执行的命令（如有）。'
+          },
+          {
+            role: 'user',
+            content: `命令: ${command}
+
+报错输出:
+${stderr}`
+          }
+        ]
+      });
+      return sendJson(res, 200, { diagnosis: response?.message?.content || '无诊断结果' });
+    }
+
     if (req.method === 'GET' && req.url === '/api/models') {
       const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
       if (!response.ok) return sendJson(res, 502, { error: await response.text() || 'Unable to fetch models from Ollama' });

@@ -36,6 +36,10 @@ const terminalCwd = el('terminalCwd');
 const terminalCommand = el('terminalCommand');
 const runTerminal = el('runTerminal');
 const terminalOutput = el('terminalOutput');
+const terminalTabs = el('terminalTabs');
+const newTerminalTabBtn = el('newTerminalTab');
+const diagnoseTerminalErrorBtn = el('diagnoseTerminalError');
+const inlineSuggest = el('inlineSuggest');
 const exportSessionBtn = el('exportSession');
 const importSessionBtn = el('importSession');
 const importSessionFile = el('importSessionFile');
@@ -71,9 +75,13 @@ let latestTree = [];
 let latestSearch = [];
 let dirty = false;
 let findIndex = -1;
+let latestTerminalError = '';
+let latestCompletion = '';
 const openTabs = [];
 const taskPlan = [];
 const multiFileChanges = [];
+const terminalSessions = [{ id: 1, title: '终端 1', cwd: '.', output: '' }];
+let activeTerminalId = 1;
 let latestAgent = null;
 const settings = {
   temperature: Number(localStorage.getItem('temperature') || 0.2),
@@ -114,6 +122,28 @@ function updateStatusBar() {
 function markDirty(v = true) {
   dirty = v;
   updateStatusBar();
+}
+
+function activeTerminal() {
+  return terminalSessions.find((t) => t.id === activeTerminalId) || terminalSessions[0];
+}
+
+function renderTerminalTabs() {
+  terminalTabs.innerHTML = terminalSessions.map((t) => `<button class="tab ${t.id === activeTerminalId ? 'active' : ''}" data-tid="${t.id}">${t.title}</button>`).join('');
+  terminalTabs.querySelectorAll('button[data-tid]').forEach((b) => {
+    b.onclick = () => {
+      activeTerminalId = Number(b.dataset.tid);
+      const t = activeTerminal();
+      terminalCwd.value = t.cwd;
+      terminalOutput.textContent = t.output || '(no output)';
+      renderTerminalTabs();
+    };
+  });
+}
+
+function setInlineSuggestion(text) {
+  latestCompletion = text || '';
+  inlineSuggest.textContent = latestCompletion ? `补全建议：${latestCompletion.slice(0, 120)}` : '补全建议：无（Ctrl+Space 触发，Tab 接受）';
 }
 
 function addMessage(role, content) {
@@ -484,6 +514,28 @@ refreshGit.onclick = async () => {
   }
 };
 
+
+diagnoseTerminalErrorBtn.onclick = async () => {
+  if (!latestTerminalError) return alert('当前没有可诊断的错误输出');
+  const model = modelSelect.value;
+  if (!model) return alert('请先选择模型');
+  const res = await api('/api/diagnose-error', {
+    method: 'POST',
+    body: JSON.stringify({ model, stderr: latestTerminalError, command: terminalCommand.value.trim(), options: { temperature: 0.1 } })
+  });
+  addMessage('assistant', `终端错误诊断：
+${res.diagnosis}`);
+};
+
+newTerminalTabBtn.onclick = () => {
+  const nextId = Math.max(...terminalSessions.map((t) => t.id)) + 1;
+  terminalSessions.push({ id: nextId, title: `终端 ${nextId}`, cwd: '.', output: '' });
+  activeTerminalId = nextId;
+  terminalCwd.value = '.';
+  terminalOutput.textContent = '(no output)';
+  renderTerminalTabs();
+};
+
 askAIBtn.onclick = async () => {
   const model = modelSelect.value;
   if (!model) return alert('请先选择模型');
@@ -664,6 +716,27 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     openFind(true);
   }
+  if ((e.ctrlKey || e.metaKey) && e.code === 'Space') {
+    e.preventDefault();
+    const model = modelSelect.value;
+    if (!model) return alert('请先选择模型');
+    const pos = editor.selectionStart;
+    const before = editor.value.slice(Math.max(0, pos - 300), pos);
+    api('/api/complete', {
+      method: 'POST',
+      body: JSON.stringify({ model, code: editor.value, cursorContext: before, options: { temperature: 0.1 } })
+    }).then((r) => setInlineSuggestion(r.suggestion || '')).catch((err) => setInlineSuggestion(`补全失败: ${err.message}`));
+  }
+  if (e.key === 'Tab' && latestCompletion && document.activeElement === editor) {
+    e.preventDefault();
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    editor.value = `${editor.value.slice(0, start)}${latestCompletion}${editor.value.slice(end)}`;
+    editor.setSelectionRange(start + latestCompletion.length, start + latestCompletion.length);
+    markDirty(true);
+    updateLineNumbers();
+    setInlineSuggestion('');
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
     openPaletteBtn.click();
@@ -678,5 +751,7 @@ persistSettings();
 renderTaskPlan();
 renderMultiFileList();
 renderAgentActions();
+renderTerminalTabs();
+setInlineSuggestion('');
 updateLineNumbers();
 updateStatusBar();

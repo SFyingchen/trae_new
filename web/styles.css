@@ -50,3 +50,6 @@ button { cursor: pointer; }
 .agent-panel { border-top: 1px solid #334155; padding: 10px; background: #0b1220; }
 .agent-actions { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .agent-summary { font-size: 13px; color: #93c5fd; margin-bottom: 8px; white-space: pre-wrap; }
+
+.inline-suggest { height: 26px; border-top: 1px solid #334155; background: #111827; color: #cbd5e1; display:flex; align-items:center; padding:0 10px; font-size:12px; }
+.terminal-tabs { display:flex; gap:6px; padding:8px 8px 0; }
