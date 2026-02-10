@@ -96,3 +96,10 @@ ollama pull qwen2.5-coder:7b
 - 查找替换面板（Ctrl+F / Ctrl+H）
 - 快捷键保存（Ctrl+S）
 - 文件脏状态（Unsaved/Saved）
+
+
+## AI Agent 助手（新增）
+
+- 在右侧新增 Agent 面板，可按目标生成下一步动作（edit / terminal / ask_user）。
+- 支持选择性应用 Agent 动作（含多文件编辑与终端命令确认）。
+- 说明：当前是本地单 Agent 版本，非完整 VSCode 全量插件生态。

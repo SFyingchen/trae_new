@@ -60,6 +60,10 @@ const findNextBtn = el('findNext');
 const replaceOneBtn = el('replaceOne');
 const replaceAllBtn = el('replaceAll');
 const closeFindBtn = el('closeFind');
+const agentStepBtn = el('agentStep');
+const agentApplyBtn = el('agentApply');
+const agentSummary = el('agentSummary');
+const agentActionsEl = el('agentActions');
 
 let latestSuggestedCode = '';
 let latestAssistantRaw = '';
@@ -70,6 +74,7 @@ let findIndex = -1;
 const openTabs = [];
 const taskPlan = [];
 const multiFileChanges = [];
+let latestAgent = null;
 const settings = {
   temperature: Number(localStorage.getItem('temperature') || 0.2),
   systemPrompt: localStorage.getItem('systemPrompt') || '你是一个编程助手，输出清晰说明和完整 updated_code 代码块。'
@@ -235,6 +240,81 @@ function parseMultiFileBlocks(text) {
     m = re.exec(text);
   }
   return blocks;
+}
+
+
+function renderAgentActions() {
+  if (!latestAgent || !Array.isArray(latestAgent.next_actions) || !latestAgent.next_actions.length) {
+    agentActionsEl.innerHTML = '暂无动作';
+    return;
+  }
+  agentActionsEl.innerHTML = latestAgent.next_actions.map((a, i) => {
+    const label = a.type === 'edit' ? `${a.path || '(未提供路径)'}` : (a.command || a.reason || a.type);
+    return `<div class="task-item"><input type="checkbox" data-i="${i}" checked /> [${escapeHtml(a.type || 'unknown')}] ${escapeHtml(label)}</div>`;
+  }).join('');
+}
+
+async function runAgentStep() {
+  const goal = goalInput.value.trim();
+  const model = modelSelect.value;
+  if (!goal) return alert('请先输入 Agent 目标');
+  if (!model) return alert('请先选择模型');
+  const context = [
+    `当前文件: ${filePathInput.value || 'untitled.txt'}`,
+    `当前代码:
+${editor.value.slice(0, 3000)}`,
+    `任务计划:
+${taskPlan.map((t, i) => `${i + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n')}`,
+    `搜索结果:
+${JSON.stringify(latestSearch).slice(0, 1500)}`
+  ].join('\n\n');
+
+  const res = await api('/api/agent/step', {
+    method: 'POST',
+    body: JSON.stringify({
+      model,
+      goal,
+      context,
+      options: { temperature: Number(settings.temperature || 0.2) }
+    })
+  });
+
+  latestAgent = res.agent || null;
+  agentSummary.textContent = `${latestAgent?.summary || 'Agent 无摘要'}${latestAgent?.done ? '（已完成）' : ''}`;
+  renderAgentActions();
+}
+
+async function applyAgentActions() {
+  if (!latestAgent || !Array.isArray(latestAgent.next_actions)) return alert('暂无可应用动作');
+  const selected = [];
+  agentActionsEl.querySelectorAll('input[type="checkbox"][data-i]').forEach((c) => {
+    if (c.checked) selected.push(latestAgent.next_actions[Number(c.dataset.i)]);
+  });
+  if (!selected.length) return alert('请先勾选动作');
+
+  const edits = selected.filter((a) => a.type === 'edit' && a.path && typeof a.content === 'string');
+  const terms = selected.filter((a) => a.type === 'terminal' && a.command);
+  const asks = selected.filter((a) => a.type === 'ask_user');
+
+  if (edits.length) {
+    await api('/api/file/batch-save', {
+      method: 'POST',
+      body: JSON.stringify({ changes: edits.map((e) => ({ path: e.path, content: e.content })) })
+    });
+    await loadTree();
+  }
+
+  for (const t of terms) {
+    if (!confirm(`Agent 请求执行终端命令：\n${t.command}`)) continue;
+    try {
+      const r = await api('/api/terminal', { method: 'POST', body: JSON.stringify({ command: t.command, cwd: terminalCwd.value.trim() || '.' }) });
+      terminalOutput.textContent = r.output || '(no output)';
+    } catch (e) {
+      terminalOutput.textContent = `Error: ${e.message}`;
+    }
+  }
+
+  if (asks.length) alert(`Agent 有 ${asks.length} 条需要你确认的问题，请查看 Agent 列表。`);
 }
 
 function openFind(replace = false) {
@@ -506,6 +586,8 @@ const commands = [
   { name: '全局搜索', run: () => searchBtn.click() },
   { name: 'AI生成计划', run: () => planTaskBtn.click() },
   { name: '执行任务计划', run: () => executeTaskBtn.click() },
+  { name: 'Agent 下一步', run: () => agentStepBtn.click() },
+  { name: '应用 Agent 动作', run: () => agentApplyBtn.click() },
   { name: '解析多文件建议', run: () => parseMultiFileBtn.click() },
   { name: '批量应用多文件建议', run: () => applyMultiFileBtn.click() },
   { name: '切换终端', run: () => toggleTerminalBtn.click() },
@@ -556,6 +638,8 @@ findNextBtn.onclick = findNext;
 replaceOneBtn.onclick = replaceOne;
 replaceAllBtn.onclick = replaceAll;
 closeFindBtn.onclick = () => findPanel.classList.add('hidden');
+agentStepBtn.onclick = () => runAgentStep().catch((e) => alert(`Agent 执行失败: ${e.message}`));
+agentApplyBtn.onclick = () => applyAgentActions().catch((e) => alert(`应用 Agent 动作失败: ${e.message}`));
 
 editor.addEventListener('input', () => {
   markDirty(true);
@@ -593,5 +677,6 @@ loadModels().catch((e) => alert(`加载模型失败: ${e.message}`));
 persistSettings();
 renderTaskPlan();
 renderMultiFileList();
+renderAgentActions();
 updateLineNumbers();
 updateStatusBar();

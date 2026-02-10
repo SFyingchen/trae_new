@@ -273,6 +273,53 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { steps: steps.map(String).filter(Boolean).slice(0, 20) });
     }
 
+
+    if (req.method === 'POST' && req.url === '/api/agent/step') {
+      const data = await readJson(req);
+      if (!data.model) return sendJson(res, 400, { error: 'model is required' });
+      const goal = String(data.goal || '').trim();
+      if (!goal) return sendJson(res, 400, { error: 'goal is required' });
+      const context = String(data.context || '').slice(0, 6000);
+      const response = await proxyOllamaChat({
+        model: data.model,
+        options: data.options || {},
+        messages: [
+          {
+            role: 'system',
+            content: [
+              '你是 IDE 内的 AI Agent。',
+              '请严格返回 JSON 对象，格式：',
+              '{"summary":"...","next_actions":[{"type":"edit|terminal|ask_user","path":"...","content":"...","command":"...","reason":"..."}],"done":false}',
+              '规则：',
+              '1) 如果要修改代码，优先输出 edit 动作，content 是完整文件内容。',
+              '2) terminal 动作只用于必要命令。',
+              '3) 不要输出 markdown。只输出 JSON。'
+            ].join('\n')
+          },
+          {
+            role: 'user',
+            content: `目标:
+${goal}\n\n当前上下文:
+${context}`
+          }
+        ]
+      });
+
+      const raw = response?.message?.content || '{}';
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = {
+          summary: raw.slice(0, 500),
+          next_actions: [{ type: 'ask_user', reason: '模型未返回合法 JSON，请人工确认下一步。' }],
+          done: false
+        };
+      }
+      if (!Array.isArray(parsed.next_actions)) parsed.next_actions = [];
+      return sendJson(res, 200, { agent: parsed, raw });
+    }
+
     if (req.method === 'GET' && req.url === '/api/models') {
       const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
       if (!response.ok) return sendJson(res, 502, { error: await response.text() || 'Unable to fetch models from Ollama' });

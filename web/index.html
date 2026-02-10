@@ -94,6 +94,15 @@
         <label><input type="checkbox" id="ctxTree" checked /> 文件树上下文</label>
         <label><input type="checkbox" id="ctxSearch" /> 搜索上下文</label>
       </div>
+      <section class="agent-panel">
+        <h3>AI Agent 助手</h3>
+        <div class="agent-actions">
+          <button id="agentStep">Agent 下一步</button>
+          <button id="agentApply">应用 Agent 编辑动作</button>
+        </div>
+        <div id="agentSummary" class="agent-summary">暂无 Agent 结果</div>
+        <div id="agentActions" class="task-list">暂无动作</div>
+      </section>
       <div id="messages"></div>
       <div class="chat-input">
         <textarea id="prompt" placeholder="描述你希望 AI 做的事情"></textarea>

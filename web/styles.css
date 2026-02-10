@@ -46,3 +46,7 @@ button { cursor: pointer; }
 .modal-content { width: min(720px, 90vw); background: #0b1220; border: 1px solid #334155; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
 .palette-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; }
 .palette-item { text-align: left; }
+
+.agent-panel { border-top: 1px solid #334155; padding: 10px; background: #0b1220; }
+.agent-actions { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.agent-summary { font-size: 13px; color: #93c5fd; margin-bottom: 8px; white-space: pre-wrap; }
