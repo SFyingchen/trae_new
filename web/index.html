@@ -23,8 +23,9 @@
     </div>
   </header>
 
-  <main>
+  <main id="layoutMain">
     <aside id="fileTree"></aside>
+    <div id="leftSplitter" class="splitter vertical"></div>
 
     <section class="editor-pane">
       <div class="tabs" id="tabs"></div>
@@ -53,31 +54,35 @@
 
       <div id="searchResults" class="search-results"></div>
 
-      <section class="task-panel">
-        <h3>Agent 任务规划（Cline 风格）</h3>
-        <textarea id="goalInput" placeholder="输入目标，例如：把 API 模块重构为 service + controller 并补测试"></textarea>
-        <div class="task-actions">
-          <button id="planTask">AI生成计划</button>
-          <button id="executeTask">按计划生成代码建议</button>
-          <button id="exportSession">导出会话</button>
-          <input id="importSessionFile" type="file" accept="application/json" hidden />
-          <button id="importSession">导入会话</button>
+      <section class="task-panel panel-collapsible" data-panel="taskPanelBody">
+        <div class="panel-head"><h3>Agent 任务规划（Cline 风格）</h3><button class="panel-toggle" data-target="taskPanelBody">折叠</button></div>
+        <div id="taskPanelBody">
+          <textarea id="goalInput" placeholder="输入目标，例如：把 API 模块重构为 service + controller 并补测试"></textarea>
+          <div class="task-actions">
+            <button id="planTask">AI生成计划</button>
+            <button id="executeTask">按计划生成代码建议</button>
+            <button id="exportSession">导出会话</button>
+            <input id="importSessionFile" type="file" accept="application/json" hidden />
+            <button id="importSession">导入会话</button>
+          </div>
+          <div id="taskList" class="task-list"></div>
         </div>
-        <div id="taskList" class="task-list"></div>
       </section>
 
-      <section class="diff-panel">
-        <h3>补丁预览（当前编辑器 vs AI建议）</h3>
-        <pre id="diffPreview">暂无差异</pre>
+      <section class="diff-panel panel-collapsible" data-panel="diffPanelBody">
+        <div class="panel-head"><h3>补丁预览（当前编辑器 vs AI建议）</h3><button class="panel-toggle" data-target="diffPanelBody">折叠</button></div>
+        <pre id="diffPanelBody" class="panel-body" >暂无差异</pre>
       </section>
 
-      <section class="batch-panel">
-        <h3>多文件改动（从 AI 回复解析）</h3>
-        <div class="batch-actions">
-          <button id="parseMultiFile">解析多文件建议</button>
-          <button id="applyMultiFile">批量应用选中</button>
+      <section class="batch-panel panel-collapsible" data-panel="batchPanelBody">
+        <div class="panel-head"><h3>多文件改动（从 AI 回复解析）</h3><button class="panel-toggle" data-target="batchPanelBody">折叠</button></div>
+        <div id="batchPanelBody">
+          <div class="batch-actions">
+            <button id="parseMultiFile">解析多文件建议</button>
+            <button id="applyMultiFile">批量应用选中</button>
+          </div>
+          <div id="multiFileList" class="task-list">暂无多文件改动</div>
         </div>
-        <div id="multiFileList" class="task-list">暂无多文件改动</div>
       </section>
 
       <section id="terminalPanel" class="terminal-panel hidden">
@@ -92,6 +97,8 @@
         <pre id="terminalOutput"></pre>
       </section>
     </section>
+
+    <div id="rightSplitter" class="splitter vertical"></div>
 
     <section class="chat-pane">
       <div class="chat-header">
@@ -122,6 +129,8 @@
       </section>
     </section>
   </main>
+
+  <div id="toast" class="toast hidden"></div>
 
   <div id="paletteModal" class="modal hidden">
     <div class="modal-content">

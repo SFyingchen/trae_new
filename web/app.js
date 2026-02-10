@@ -40,6 +40,10 @@ const terminalTabs = el('terminalTabs');
 const newTerminalTabBtn = el('newTerminalTab');
 const diagnoseTerminalErrorBtn = el('diagnoseTerminalError');
 const inlineSuggest = el('inlineSuggest');
+const layoutMain = el('layoutMain');
+const leftSplitter = el('leftSplitter');
+const rightSplitter = el('rightSplitter');
+const toast = el('toast');
 const exportSessionBtn = el('exportSession');
 const importSessionBtn = el('importSession');
 const importSessionFile = el('importSessionFile');
@@ -49,7 +53,7 @@ const goalInput = el('goalInput');
 const planTaskBtn = el('planTask');
 const executeTaskBtn = el('executeTask');
 const taskList = el('taskList');
-const diffPreview = el('diffPreview');
+const diffPreview = el('diffPanelBody');
 const openGit = el('openGit');
 const gitPanel = el('gitPanel');
 const refreshGit = el('refreshGit');
@@ -97,6 +101,13 @@ async function api(url, options = {}) {
 
 function escapeHtml(text = '') {
   return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+function notify(message) {
+  toast.textContent = message;
+  toast.classList.remove('hidden');
+  clearTimeout(notify._t);
+  notify._t = setTimeout(() => toast.classList.add('hidden'), 2200);
 }
 
 function getLanguageByPath(p = '') {
@@ -478,7 +489,7 @@ planTaskBtn.onclick = async () => {
     if (!taskPlan.length) taskPlan.push({ text: goal, done: false });
     renderTaskPlan();
   } catch (e) {
-    alert(`生成计划失败: ${e.message}`);
+    notify(`生成计划失败: ${e.message}`);
   }
 };
 
@@ -592,7 +603,7 @@ applyMultiFileBtn.onclick = async () => {
   if (!selected.length) return alert('请至少选择一个文件改动');
   await api('/api/file/batch-save', { method: 'POST', body: JSON.stringify({ changes: selected }) });
   await loadTree();
-  alert(`已应用 ${selected.length} 个文件改动`);
+  notify(`已应用 ${selected.length} 个文件改动`);
 };
 
 function getMessages() {
@@ -743,10 +754,44 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-refreshModelsBtn.onclick = () => loadModels().catch((e) => alert(`加载模型失败: ${e.message}`));
 
-loadTree().catch((e) => alert(`加载文件树失败: ${e.message}`));
-loadModels().catch((e) => alert(`加载模型失败: ${e.message}`));
+
+document.querySelectorAll('.panel-toggle').forEach((btn) => {
+  btn.onclick = () => {
+    const target = document.getElementById(btn.dataset.target);
+    if (!target) return;
+    target.classList.toggle('hidden');
+    btn.textContent = target.classList.contains('hidden') ? '展开' : '折叠';
+  };
+});
+
+function bindSplitter(splitterEl) {
+  let dragging = false;
+  splitterEl.addEventListener('mousedown', () => { dragging = true; document.body.classList.add('resizing'); });
+  window.addEventListener('mouseup', () => { dragging = false; document.body.classList.remove('resizing'); });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const rect = layoutMain.getBoundingClientRect();
+    if (splitterEl === leftSplitter) {
+      const left = Math.max(200, Math.min(e.clientX - rect.left, rect.width - 760));
+      const right = (layoutMain.dataset.right || '430');
+      layoutMain.style.gridTemplateColumns = `${left}px 6px 1fr 6px ${right}px`;
+    } else {
+      const right = Math.max(320, Math.min(rect.right - e.clientX, rect.width - 340));
+      layoutMain.dataset.right = String(right);
+      const left = layoutMain.style.gridTemplateColumns.split(' ')[0] || '280px';
+      layoutMain.style.gridTemplateColumns = `${left} 6px 1fr 6px ${right}px`;
+    }
+  });
+}
+
+bindSplitter(leftSplitter);
+bindSplitter(rightSplitter);
+
+refreshModelsBtn.onclick = () => loadModels().catch((e) => notify(`加载模型失败: ${e.message}`));
+
+loadTree().catch((e) => notify(`加载文件树失败: ${e.message}`));
+loadModels().catch((e) => notify(`加载模型失败: ${e.message}`));
 persistSettings();
 renderTaskPlan();
 renderMultiFileList();
