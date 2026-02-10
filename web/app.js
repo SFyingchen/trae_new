@@ -48,12 +48,17 @@ const openGit = el('openGit');
 const gitPanel = el('gitPanel');
 const refreshGit = el('refreshGit');
 const gitOutput = el('gitOutput');
+const parseMultiFileBtn = el('parseMultiFile');
+const applyMultiFileBtn = el('applyMultiFile');
+const multiFileList = el('multiFileList');
 
 let latestSuggestedCode = '';
+let latestAssistantRaw = '';
 let latestTree = [];
 let latestSearch = [];
 const openTabs = [];
 const taskPlan = [];
+const multiFileChanges = [];
 const settings = {
   temperature: Number(localStorage.getItem('temperature') || 0.2),
   systemPrompt: localStorage.getItem('systemPrompt') || '你是一个编程助手，输出清晰说明和完整 updated_code 代码块。'
@@ -154,6 +159,10 @@ function renderTaskPlan() {
   });
 }
 
+function renderMultiFileList() {
+  multiFileList.innerHTML = multiFileChanges.map((c, i) => `<div class="task-item"><input type="checkbox" data-i="${i}" checked /> <strong>${escapeHtml(c.path)}</strong> (${c.content.length} chars)</div>`).join('') || '暂无多文件改动';
+}
+
 function buildContext() {
   const contexts = [];
   if (ctxTree.checked) contexts.push(`文件树摘要:\n${JSON.stringify(latestTree).slice(0, 2500)}`);
@@ -173,6 +182,17 @@ function makeSimpleDiff(a, b) {
     if (B[i] !== undefined) out.push(`+ ${B[i]}`);
   }
   return out.join('\n') || '暂无差异';
+}
+
+function parseMultiFileBlocks(text) {
+  const blocks = [];
+  const re = /```file:([^\n]+)\n([\s\S]*?)```/g;
+  let m = re.exec(text);
+  while (m) {
+    blocks.push({ path: m[1].trim(), content: m[2].replace(/\n$/, '') });
+    m = re.exec(text);
+  }
+  return blocks;
 }
 
 saveFileBtn.onclick = async () => {
@@ -240,13 +260,23 @@ searchBtn.onclick = async () => {
   });
 };
 
-planTaskBtn.onclick = () => {
+planTaskBtn.onclick = async () => {
   const goal = goalInput.value.trim();
+  const model = modelSelect.value;
   if (!goal) return alert('请先输入任务目标');
-  taskPlan.length = 0;
-  goal.split(/[，。,.;；\n]+/).map((s) => s.trim()).filter(Boolean).forEach((text) => taskPlan.push({ text, done: false }));
-  if (!taskPlan.length) taskPlan.push({ text: goal, done: false });
-  renderTaskPlan();
+  if (!model) return alert('请先选择模型');
+  try {
+    const res = await api('/api/plan', {
+      method: 'POST',
+      body: JSON.stringify({ model, goal, options: { temperature: Number(settings.temperature || 0.2) } })
+    });
+    taskPlan.length = 0;
+    res.steps.forEach((text) => taskPlan.push({ text, done: false }));
+    if (!taskPlan.length) taskPlan.push({ text: goal, done: false });
+    renderTaskPlan();
+  } catch (e) {
+    alert(`生成计划失败: ${e.message}`);
+  }
 };
 
 executeTaskBtn.onclick = () => {
@@ -298,12 +328,13 @@ askAIBtn.onclick = async () => {
         model,
         options: { temperature: Number(settings.temperature || 0.2) },
         messages: [
-          { role: 'system', content: settings.systemPrompt },
+          { role: 'system', content: `${settings.systemPrompt}\n如果需要改多个文件，可用格式：\`\`\`file:path/to/file\\n完整文件内容\`\`\` 返回。` },
           { role: 'user', content: `文件路径: ${currentPath}\n\n当前代码:\n${currentCode}\n\n需求:\n${userPrompt}\n\n上下文:\n${context}` }
         ]
       })
     });
     const content = result?.message?.content || '模型没有返回内容';
+    latestAssistantRaw = content;
     addMessage('assistant', content);
     const matched = content.match(/```updated_code\n([\s\S]*?)```/);
     latestSuggestedCode = matched ? matched[1].trimEnd() : '';
@@ -318,7 +349,23 @@ askAIBtn.onclick = async () => {
 applyAIBtn.onclick = () => {
   if (!latestSuggestedCode) return alert('没有可应用代码');
   editor.value = latestSuggestedCode;
-  diffPreview.textContent = makeSimpleDiff(editor.value, latestSuggestedCode);
+};
+
+parseMultiFileBtn.onclick = () => {
+  multiFileChanges.length = 0;
+  parseMultiFileBlocks(latestAssistantRaw).forEach((c) => multiFileChanges.push(c));
+  renderMultiFileList();
+};
+
+applyMultiFileBtn.onclick = async () => {
+  const selected = [];
+  multiFileList.querySelectorAll('input[type="checkbox"][data-i]').forEach((c) => {
+    if (c.checked) selected.push(multiFileChanges[Number(c.dataset.i)]);
+  });
+  if (!selected.length) return alert('请至少选择一个文件改动');
+  await api('/api/file/batch-save', { method: 'POST', body: JSON.stringify({ changes: selected }) });
+  await loadTree();
+  alert(`已应用 ${selected.length} 个文件改动`);
 };
 
 function getMessages() {
@@ -360,8 +407,10 @@ importSessionFile.onchange = async () => {
 const commands = [
   { name: '保存文件', run: () => saveFileBtn.click() },
   { name: '全局搜索', run: () => searchBtn.click() },
-  { name: '生成任务计划', run: () => planTaskBtn.click() },
+  { name: 'AI生成计划', run: () => planTaskBtn.click() },
   { name: '执行任务计划', run: () => executeTaskBtn.click() },
+  { name: '解析多文件建议', run: () => parseMultiFileBtn.click() },
+  { name: '批量应用多文件建议', run: () => applyMultiFileBtn.click() },
   { name: '切换终端', run: () => toggleTerminalBtn.click() },
   { name: '打开Git面板', run: () => openGit.click() },
   { name: '请求AI建议', run: () => askAIBtn.click() },
@@ -418,3 +467,5 @@ refreshModelsBtn.onclick = () => loadModels().catch((e) => alert(`加载模型�
 loadTree().catch((e) => alert(`加载文件树失败: ${e.message}`));
 loadModels().catch((e) => alert(`加载模型失败: ${e.message}`));
 persistSettings();
+renderTaskPlan();
+renderMultiFileList();

@@ -5,19 +5,19 @@ h1 { margin: 0; font-size: 18px; white-space: nowrap; }
 main { display: grid; grid-template-columns: 280px 1fr 430px; height: calc(100vh - 58px); }
 aside { border-right: 1px solid #334155; overflow: auto; padding: 12px; }
 .editor-pane { display: flex; flex-direction: column; min-width: 0; }
-.tabs, .file-meta, .task-actions, .terminal-toolbar, .chat-header, .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tabs, .file-meta, .task-actions, .terminal-toolbar, .chat-header, .toolbar, .batch-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .tabs { padding: 8px; border-bottom: 1px solid #334155; }
 .file-meta { padding: 10px; border-bottom: 1px solid #334155; }
 input, select, button, textarea { border: 1px solid #475569; background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 8px; }
-#filePath { flex: 1; min-width: 200px; }
-#editor { width: 100%; min-height: 220px; flex: 1; resize: none; border: none; border-radius: 0; font-family: "JetBrains Mono", monospace; line-height: 1.5; }
+#filePath { flex: 1; min-width: 180px; }
+#editor { width: 100%; min-height: 210px; flex: 1; resize: none; border: none; border-radius: 0; font-family: "JetBrains Mono", monospace; line-height: 1.5; }
 .search-results, .task-list { max-height: 160px; overflow: auto; border-top: 1px solid #334155; }
 .result-item, .task-item { padding: 8px 10px; border-bottom: 1px solid #1e293b; }
 .result-item { cursor: pointer; }
 .result-item:hover { background: #1e293b; }
-.task-panel, .diff-panel { border-top: 1px solid #334155; padding: 10px; background: #0b1220; }
+.task-panel, .diff-panel, .batch-panel { border-top: 1px solid #334155; padding: 10px; background: #0b1220; }
 #goalInput { width: 100%; min-height: 72px; }
-#diffPreview { margin: 0; max-height: 170px; overflow: auto; white-space: pre-wrap; color: #fca5a5; }
+#diffPreview { margin: 0; max-height: 150px; overflow: auto; white-space: pre-wrap; color: #fca5a5; }
 .chat-pane { border-left: 1px solid #334155; display: flex; flex-direction: column; }
 #messages { flex: 1; overflow: auto; padding: 12px; }
 .message { margin-bottom: 12px; padding: 10px; border-radius: 8px; }

@@ -12,6 +12,7 @@ const WORKSPACE_ROOT = path.resolve(process.env.WORKSPACE_ROOT || process.cwd())
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
 const WEB_ROOT = path.join(__dirname, 'web');
 const HISTORY_ROOT = path.join(WORKSPACE_ROOT, '.trae-history');
+const ALLOW_DANGEROUS_COMMANDS = process.env.ALLOW_DANGEROUS_COMMANDS === 'true';
 
 function safeWorkspacePath(requestPath = '') {
   const normalized = path.normalize(requestPath).replace(/^([/\\])+/, '');
@@ -29,6 +30,19 @@ function safeWebPath(requestPath = '') {
 
 function encodeHistoryPath(fileRel) {
   return fileRel.replaceAll('/', '__');
+}
+
+function isDangerousCommand(command = '') {
+  const dangerousPatterns = [
+    /\brm\s+-rf\s+\//i,
+    /\bsudo\b/i,
+    /\bmkfs\b/i,
+    /\bdd\s+if=/i,
+    /\bshutdown\b/i,
+    /\breboot\b/i,
+    /:\(\)\s*\{\s*:\|:\s*&\s*\};:/
+  ];
+  return dangerousPatterns.some((p) => p.test(command));
 }
 
 async function ensureHistoryRoot() {
@@ -124,6 +138,10 @@ async function searchFiles(dir, keyword, relBase = '', maxResults = 120) {
 }
 
 async function runTerminalCommand(command, cwdRel = '') {
+  if (!ALLOW_DANGEROUS_COMMANDS && isDangerousCommand(command)) {
+    throw new Error('Blocked potentially dangerous command. Set ALLOW_DANGEROUS_COMMANDS=true to override.');
+  }
+
   const cwd = safeWorkspacePath(cwdRel || '.');
   const { stdout, stderr } = await execAsync(command, {
     cwd,
@@ -143,6 +161,15 @@ async function runGit(command) {
     shell: '/bin/bash'
   });
   return `${stdout || ''}${stderr ? `\n${stderr}` : ''}`.trim();
+}
+
+async function saveFileWithSnapshot(relPath, content) {
+  const full = safeWorkspacePath(relPath || '');
+  let previousContent = '';
+  try { previousContent = await fsp.readFile(full, 'utf8'); } catch {}
+  await writeHistorySnapshot(relPath, previousContent);
+  await fsp.mkdir(path.dirname(full), { recursive: true });
+  await fsp.writeFile(full, content ?? '', 'utf8');
 }
 
 async function proxyOllamaChat(payload) {
@@ -167,14 +194,19 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && req.url === '/api/file') {
       const data = await readJson(req);
-      const relPath = data.path || '';
-      const full = safeWorkspacePath(relPath);
-      let previousContent = '';
-      try { previousContent = await fsp.readFile(full, 'utf8'); } catch {}
-      await writeHistorySnapshot(relPath, previousContent);
-      await fsp.mkdir(path.dirname(full), { recursive: true });
-      await fsp.writeFile(full, data.content ?? '', 'utf8');
+      await saveFileWithSnapshot(data.path || '', data.content ?? '');
       return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/file/batch-save') {
+      const data = await readJson(req);
+      const changes = Array.isArray(data.changes) ? data.changes : [];
+      if (!changes.length) return sendJson(res, 400, { error: 'changes is required' });
+      for (const change of changes) {
+        if (!change.path) continue;
+        await saveFileWithSnapshot(change.path, change.content ?? '');
+      }
+      return sendJson(res, 200, { ok: true, count: changes.length });
     }
 
     if (req.method === 'POST' && req.url === '/api/file/rename') {
@@ -217,6 +249,30 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/api/git/status') return sendJson(res, 200, { output: await runGit('git status --short && git branch --show-current') });
     if (req.method === 'GET' && req.url === '/api/git/diff') return sendJson(res, 200, { output: await runGit('git diff -- . ":(exclude).trae-history"') });
 
+    if (req.method === 'POST' && req.url === '/api/plan') {
+      const data = await readJson(req);
+      if (!data.model) return sendJson(res, 400, { error: 'model is required' });
+      const goal = String(data.goal || '').trim();
+      if (!goal) return sendJson(res, 400, { error: 'goal is required' });
+      const response = await proxyOllamaChat({
+        model: data.model,
+        options: data.options || {},
+        messages: [
+          { role: 'system', content: '你是任务规划助手。只返回 JSON 数组，每个元素是简短步骤字符串。不要输出其他内容。' },
+          { role: 'user', content: goal }
+        ]
+      });
+      const text = response?.message?.content || '[]';
+      let steps = [];
+      try {
+        steps = JSON.parse(text);
+      } catch {
+        steps = goal.split(/[，。,.;；\n]+/).map((s) => s.trim()).filter(Boolean);
+      }
+      if (!Array.isArray(steps)) steps = [];
+      return sendJson(res, 200, { steps: steps.map(String).filter(Boolean).slice(0, 20) });
+    }
+
     if (req.method === 'GET' && req.url === '/api/models') {
       const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
       if (!response.ok) return sendJson(res, 502, { error: await response.text() || 'Unable to fetch models from Ollama' });
@@ -245,4 +301,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Trae local AI editor running on http://localhost:${PORT}`);
   console.log(`Workspace root: ${WORKSPACE_ROOT}`);
   console.log(`Ollama URL: ${OLLAMA_BASE_URL}`);
+  console.log(`Dangerous terminal commands allowed: ${ALLOW_DANGEROUS_COMMANDS}`);
 });
