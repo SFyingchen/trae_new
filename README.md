@@ -1,57 +1,58 @@
 # Trae Local AI Editor
 
-一个简化版的 AI 编辑器（灵感来自 Codex / Trae），支持：
+一个本地优先的 AI 编辑器（灵感来自 Codex / Trae），支持本地 Ollama，无需登录。
 
-- 本地文件浏览与编辑
-- 直接调用本地 Ollama 模型进行代码改写建议
-- 无需登录/注册
-- 文件搜索、重命名、删除、新建
-- 自动历史快照与回滚
+## 已实现的 Trae 风格能力
+
+- 项目文件树、标签页、多文件编辑
+- 全局搜索 / 新建 / 重命名 / 删除
+- AI 对话改写（支持一键应用 `updated_code`）
+- AI 上下文增强（可附带文件树摘要/搜索结果）
+- 工作区终端（在项目内执行命令）
+- 命令面板（`Ctrl/Cmd + K`）
+- 会话导出/导入（消息、标签页、设置）
+- 每次保存自动快照 + 历史版本回滚
+- 无账号体系（纯本地）
 
 ## 快速开始
 
 ```bash
-# 1) 确保你已安装并启动 ollama
+# 1) 启动 ollama
 ollama serve
 
-# 2) 拉取一个模型（示例）
+# 2) 拉模型
 ollama pull qwen2.5-coder:7b
 
-# 3) 启动本项目
+# 3) 启动项目
 npm start
 ```
 
-默认访问：`http://localhost:3000`
+访问：`http://localhost:3000`
 
 ## 环境变量
 
 - `PORT`：服务端口（默认 `3000`）
-- `WORKSPACE_ROOT`：可编辑的工作区目录（默认当前目录）
+- `WORKSPACE_ROOT`：可编辑目录（默认当前目录）
 - `OLLAMA_BASE_URL`：Ollama 地址（默认 `http://127.0.0.1:11434`）
 
-## 功能说明
+## 核心 API
 
-1. 左侧：项目文件树（可折叠目录）
-2. 中间：编辑器 + 文件标签页 + 搜索结果
-3. 右侧：AI 对话区（生成可替换完整代码）
-4. 顶部：模型选择、全局搜索、新建/重命名/删除/保存
-5. 历史版本：每次保存会自动写入 `.trae-history`，可按文件回滚
+- `GET /api/tree`
+- `GET /api/file?path=...`
+- `POST /api/file`（自动写历史快照）
+- `POST /api/file/rename`
+- `POST /api/file/delete`
+- `GET /api/search?q=...`
+- `GET /api/history?path=...`
+- `POST /api/history/restore`
+- `POST /api/terminal`
+- `GET /api/models`
+- `POST /api/chat`
 
-## 主要 API
+## 安全说明
 
-- `GET /api/tree` 文件树
-- `GET /api/file?path=...` 读取文件
-- `POST /api/file` 保存文件（自动快照）
-- `POST /api/file/rename` 重命名
-- `POST /api/file/delete` 删除
-- `GET /api/search?q=...` 全局内容搜索
-- `GET /api/history?path=...` 历史快照列表
-- `POST /api/history/restore` 回滚快照
-- `GET /api/models` 本地模型列表
-- `POST /api/chat` 调用 Ollama 对话
+- 文件访问限制在 `WORKSPACE_ROOT`。
+- 静态资源限制在 `web/`。
+- 路径穿越有防护。
 
-## 注意
-
-- 出于安全考虑，后端限制只读写 `WORKSPACE_ROOT` 内文件。
-- 静态资源与工作区路径都做了路径穿越防护。
-- 若模型列表为空，请先执行 `ollama pull <model>`。
+> 说明：本项目是“Trae 风格的本地实现”，不是官方 Trae 客户端。

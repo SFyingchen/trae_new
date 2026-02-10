@@ -2,6 +2,10 @@ const http = require('http');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+
+const execAsync = promisify(exec);
 
 const PORT = process.env.PORT || 3000;
 const WORKSPACE_ROOT = path.resolve(process.env.WORKSPACE_ROOT || process.cwd());
@@ -12,18 +16,14 @@ const HISTORY_ROOT = path.join(WORKSPACE_ROOT, '.trae-history');
 function safeWorkspacePath(requestPath = '') {
   const normalized = path.normalize(requestPath).replace(/^([/\\])+/, '');
   const resolved = path.resolve(WORKSPACE_ROOT, normalized);
-  if (!resolved.startsWith(WORKSPACE_ROOT)) {
-    throw new Error('Path traversal is not allowed');
-  }
+  if (!resolved.startsWith(WORKSPACE_ROOT)) throw new Error('Path traversal is not allowed');
   return resolved;
 }
 
 function safeWebPath(requestPath = '') {
   const normalized = path.normalize(requestPath).replace(/^([/\\])+/, '');
   const resolved = path.resolve(WEB_ROOT, normalized);
-  if (!resolved.startsWith(WEB_ROOT)) {
-    throw new Error('Static path traversal is not allowed');
-  }
+  if (!resolved.startsWith(WEB_ROOT)) throw new Error('Static path traversal is not allowed');
   return resolved;
 }
 
@@ -39,19 +39,14 @@ async function writeHistorySnapshot(fileRel, content) {
   await ensureHistoryRoot();
   const safeName = encodeHistoryPath(fileRel || 'untitled.txt');
   const now = new Date().toISOString().replaceAll(':', '-');
-  const snapshotPath = path.join(HISTORY_ROOT, `${safeName}__${now}.txt`);
-  await fsp.writeFile(snapshotPath, content ?? '', 'utf8');
+  await fsp.writeFile(path.join(HISTORY_ROOT, `${safeName}__${now}.txt`), content ?? '', 'utf8');
 }
 
 async function listHistorySnapshots(fileRel) {
   await ensureHistoryRoot();
   const safeName = encodeHistoryPath(fileRel);
   const entries = await fsp.readdir(HISTORY_ROOT, { withFileTypes: true });
-  return entries
-    .filter((e) => e.isFile() && e.name.startsWith(`${safeName}__`) && e.name.endsWith('.txt'))
-    .map((e) => e.name)
-    .sort()
-    .reverse();
+  return entries.filter((e) => e.isFile() && e.name.startsWith(`${safeName}__`) && e.name.endsWith('.txt')).map((e) => e.name).sort().reverse();
 }
 
 async function readJson(req) {
@@ -81,13 +76,9 @@ function sendFile(res, filePath) {
   };
 
   const stream = fs.createReadStream(filePath);
-  stream.on('open', () => {
-    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain; charset=utf-8' });
-  });
+  stream.on('open', () => res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain; charset=utf-8' }));
   stream.on('error', () => {
-    if (!res.headersSent) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    }
+    if (!res.headersSent) res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Not found');
   });
   stream.pipe(res);
@@ -102,11 +93,8 @@ async function listTree(dir, relBase = '') {
   const out = [];
   for (const entry of filtered) {
     const relPath = path.posix.join(relBase, entry.name);
-    if (entry.isDirectory()) {
-      out.push({ type: 'dir', name: entry.name, path: relPath, children: await listTree(path.join(dir, entry.name), relPath) });
-    } else {
-      out.push({ type: 'file', name: entry.name, path: relPath });
-    }
+    if (entry.isDirectory()) out.push({ type: 'dir', name: entry.name, path: relPath, children: await listTree(path.join(dir, entry.name), relPath) });
+    else out.push({ type: 'file', name: entry.name, path: relPath });
   }
   return out;
 }
@@ -132,12 +120,24 @@ async function searchFiles(dir, keyword, relBase = '', maxResults = 100) {
           result.push({ path: relPath, snippet: content.slice(start, end).replaceAll('\n', ' ') });
         }
       } catch {
-        // skip binary or unreadable files
+        // skip unreadable
       }
     }
     if (result.length >= maxResults) break;
   }
   return result;
+}
+
+async function runTerminalCommand(command, cwdRel = '') {
+  const cwd = safeWorkspacePath(cwdRel || '.');
+  const { stdout, stderr } = await execAsync(command, {
+    cwd,
+    timeout: 12_000,
+    maxBuffer: 1024 * 1024,
+    shell: '/bin/bash'
+  });
+  const combined = `${stdout || ''}${stderr ? `\n${stderr}` : ''}`;
+  return combined.slice(0, 20_000);
 }
 
 async function proxyOllamaChat(payload) {
@@ -146,46 +146,28 @@ async function proxyOllamaChat(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...payload, stream: false })
   });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Ollama error ${response.status}: ${text}`);
-  }
-
+  if (!response.ok) throw new Error(`Ollama error ${response.status}: ${await response.text()}`);
   return response.json();
 }
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (req.method === 'GET' && req.url === '/api/health') {
-      return sendJson(res, 200, { ok: true });
-    }
+    if (req.method === 'GET' && req.url === '/api/health') return sendJson(res, 200, { ok: true });
 
-    if (req.method === 'GET' && req.url === '/api/tree') {
-      const tree = await listTree(WORKSPACE_ROOT);
-      return sendJson(res, 200, { root: WORKSPACE_ROOT, tree });
-    }
+    if (req.method === 'GET' && req.url === '/api/tree') return sendJson(res, 200, { root: WORKSPACE_ROOT, tree: await listTree(WORKSPACE_ROOT) });
 
     if (req.method === 'GET' && req.url.startsWith('/api/file?')) {
       const fileRel = new URL(req.url, `http://${req.headers.host}`).searchParams.get('path') || '';
-      const full = safeWorkspacePath(fileRel);
-      const content = await fsp.readFile(full, 'utf8');
-      return sendJson(res, 200, { path: fileRel, content });
+      return sendJson(res, 200, { path: fileRel, content: await fsp.readFile(safeWorkspacePath(fileRel), 'utf8') });
     }
 
     if (req.method === 'POST' && req.url === '/api/file') {
       const data = await readJson(req);
       const relPath = data.path || '';
       const full = safeWorkspacePath(relPath);
-
       let previousContent = '';
-      try {
-        previousContent = await fsp.readFile(full, 'utf8');
-      } catch {
-        previousContent = '';
-      }
+      try { previousContent = await fsp.readFile(full, 'utf8'); } catch {}
       await writeHistorySnapshot(relPath, previousContent);
-
       await fsp.mkdir(path.dirname(full), { recursive: true });
       await fsp.writeFile(full, data.content ?? '', 'utf8');
       return sendJson(res, 200, { ok: true });
@@ -202,65 +184,51 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && req.url === '/api/file/delete') {
       const data = await readJson(req);
-      const full = safeWorkspacePath(data.path || '');
-      await fsp.rm(full, { recursive: true, force: true });
+      await fsp.rm(safeWorkspacePath(data.path || ''), { recursive: true, force: true });
       return sendJson(res, 200, { ok: true });
     }
 
     if (req.method === 'GET' && req.url.startsWith('/api/history?')) {
       const relPath = new URL(req.url, `http://${req.headers.host}`).searchParams.get('path') || '';
-      const snapshots = await listHistorySnapshots(relPath);
-      return sendJson(res, 200, { snapshots });
+      return sendJson(res, 200, { snapshots: await listHistorySnapshots(relPath) });
     }
 
     if (req.method === 'POST' && req.url === '/api/history/restore') {
       const data = await readJson(req);
-      const relPath = data.path || '';
-      const targetFile = safeWorkspacePath(relPath);
-      const snapshotName = data.snapshot || '';
-      const snapshotPath = path.resolve(HISTORY_ROOT, snapshotName);
-      if (!snapshotPath.startsWith(HISTORY_ROOT)) {
-        return sendJson(res, 400, { error: 'invalid snapshot' });
-      }
-      const content = await fsp.readFile(snapshotPath, 'utf8');
-      await fsp.writeFile(targetFile, content, 'utf8');
+      const targetFile = safeWorkspacePath(data.path || '');
+      const snapshotPath = path.resolve(HISTORY_ROOT, data.snapshot || '');
+      if (!snapshotPath.startsWith(HISTORY_ROOT)) return sendJson(res, 400, { error: 'invalid snapshot' });
+      await fsp.writeFile(targetFile, await fsp.readFile(snapshotPath, 'utf8'), 'utf8');
       return sendJson(res, 200, { ok: true });
     }
 
     if (req.method === 'GET' && req.url.startsWith('/api/search?')) {
       const keyword = new URL(req.url, `http://${req.headers.host}`).searchParams.get('q') || '';
-      if (!keyword.trim()) return sendJson(res, 200, { results: [] });
-      const results = await searchFiles(WORKSPACE_ROOT, keyword.trim());
-      return sendJson(res, 200, { results });
+      return sendJson(res, 200, { results: keyword.trim() ? await searchFiles(WORKSPACE_ROOT, keyword.trim()) : [] });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/terminal') {
+      const data = await readJson(req);
+      if (!data.command || typeof data.command !== 'string') return sendJson(res, 400, { error: 'command is required' });
+      return sendJson(res, 200, { output: await runTerminalCommand(data.command, data.cwd || '.') });
     }
 
     if (req.method === 'GET' && req.url === '/api/models') {
       const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
-      if (!response.ok) {
-        const text = await response.text();
-        return sendJson(res, 502, { error: text || 'Unable to fetch models from Ollama' });
-      }
+      if (!response.ok) return sendJson(res, 502, { error: await response.text() || 'Unable to fetch models from Ollama' });
       const data = await response.json();
-      const models = (data.models || []).map((m) => m.name);
-      return sendJson(res, 200, { models });
+      return sendJson(res, 200, { models: (data.models || []).map((m) => m.name) });
     }
 
     if (req.method === 'POST' && req.url === '/api/chat') {
       const data = await readJson(req);
       if (!data.model) return sendJson(res, 400, { error: 'model is required' });
       if (!Array.isArray(data.messages)) return sendJson(res, 400, { error: 'messages array is required' });
-      const chatResult = await proxyOllamaChat({ model: data.model, messages: data.messages });
-      return sendJson(res, 200, chatResult);
+      return sendJson(res, 200, await proxyOllamaChat({ model: data.model, messages: data.messages, options: data.options || {} }));
     }
 
-    if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
-      return sendFile(res, path.join(WEB_ROOT, 'index.html'));
-    }
-
-    if (req.method === 'GET' && req.url.startsWith('/web/')) {
-      const staticPath = safeWebPath(req.url.slice('/web/'.length));
-      return sendFile(res, staticPath);
-    }
+    if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) return sendFile(res, path.join(WEB_ROOT, 'index.html'));
+    if (req.method === 'GET' && req.url.startsWith('/web/')) return sendFile(res, safeWebPath(req.url.slice('/web/'.length)));
 
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Not Found');
