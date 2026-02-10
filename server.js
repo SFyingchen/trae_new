@@ -13,6 +13,7 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
 const WEB_ROOT = path.join(__dirname, 'web');
 const HISTORY_ROOT = path.join(WORKSPACE_ROOT, '.trae-history');
 const ALLOW_DANGEROUS_COMMANDS = process.env.ALLOW_DANGEROUS_COMMANDS === 'true';
+const agentSessions = new Map();
 
 function safeWorkspacePath(requestPath = '') {
   const normalized = path.normalize(requestPath).replace(/^([/\\])+/, '');
@@ -172,6 +173,76 @@ async function saveFileWithSnapshot(relPath, content) {
   await fsp.writeFile(full, content ?? '', 'utf8');
 }
 
+async function runSingleAgentStep({ model, goal, context = '', options = {} }) {
+  const response = await proxyOllamaChat({
+    model,
+    options,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '你是 IDE 内的 AI Agent。',
+          '请严格返回 JSON 对象，格式：',
+          '{"summary":"...","next_actions":[{"type":"edit|terminal|ask_user","path":"...","content":"...","command":"...","reason":"..."}],"done":false}',
+          '规则：',
+          '1) 如果要修改代码，优先输出 edit 动作，content 是完整文件内容。',
+          '2) terminal 动作只用于必要命令。',
+          '3) 不要输出 markdown。只输出 JSON。'
+        ].join('\n')
+      },
+      {
+        role: 'user',
+        content: `目标:
+${goal}\n\n当前上下文:
+${String(context).slice(0, 6000)}`
+      }
+    ]
+  });
+
+  const raw = response?.message?.content || '{}';
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = {
+      summary: raw.slice(0, 500),
+      next_actions: [{ type: 'ask_user', reason: '模型未返回合法 JSON，请人工确认下一步。' }],
+      done: false
+    };
+  }
+  if (!Array.isArray(parsed.next_actions)) parsed.next_actions = [];
+  return { parsed, raw };
+}
+
+async function executeAgentActions(actions, opts = {}) {
+  const { allowWrite = false, allowTerminal = false } = opts;
+  const results = [];
+  for (const action of actions) {
+    if (action.type === 'edit') {
+      if (allowWrite && action.path && typeof action.content === 'string') {
+        await saveFileWithSnapshot(action.path, action.content);
+        results.push({ type: 'edit', path: action.path, status: 'applied' });
+      } else {
+        results.push({ type: 'edit', path: action.path || '', status: 'skipped' });
+      }
+    } else if (action.type === 'terminal') {
+      if (allowTerminal && action.command) {
+        try {
+          const output = await runTerminalCommand(action.command, action.cwd || '.');
+          results.push({ type: 'terminal', command: action.command, status: 'ran', output: String(output).slice(0, 1200) });
+        } catch (e) {
+          results.push({ type: 'terminal', command: action.command, status: 'error', error: e.message });
+        }
+      } else {
+        results.push({ type: 'terminal', command: action.command || '', status: 'skipped' });
+      }
+    } else {
+      results.push({ type: action.type || 'ask_user', reason: action.reason || '', status: 'pending_user' });
+    }
+  }
+  return results;
+}
+
 async function proxyOllamaChat(payload) {
   const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: 'POST',
@@ -279,45 +350,47 @@ const server = http.createServer(async (req, res) => {
       if (!data.model) return sendJson(res, 400, { error: 'model is required' });
       const goal = String(data.goal || '').trim();
       if (!goal) return sendJson(res, 400, { error: 'goal is required' });
-      const context = String(data.context || '').slice(0, 6000);
-      const response = await proxyOllamaChat({
+      const { parsed, raw } = await runSingleAgentStep({
         model: data.model,
-        options: data.options || {},
-        messages: [
-          {
-            role: 'system',
-            content: [
-              '你是 IDE 内的 AI Agent。',
-              '请严格返回 JSON 对象，格式：',
-              '{"summary":"...","next_actions":[{"type":"edit|terminal|ask_user","path":"...","content":"...","command":"...","reason":"..."}],"done":false}',
-              '规则：',
-              '1) 如果要修改代码，优先输出 edit 动作，content 是完整文件内容。',
-              '2) terminal 动作只用于必要命令。',
-              '3) 不要输出 markdown。只输出 JSON。'
-            ].join('\n')
-          },
-          {
-            role: 'user',
-            content: `目标:
-${goal}\n\n当前上下文:
-${context}`
-          }
-        ]
+        goal,
+        context: data.context || '',
+        options: data.options || {}
       });
-
-      const raw = response?.message?.content || '{}';
-      let parsed;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = {
-          summary: raw.slice(0, 500),
-          next_actions: [{ type: 'ask_user', reason: '模型未返回合法 JSON，请人工确认下一步。' }],
-          done: false
-        };
-      }
-      if (!Array.isArray(parsed.next_actions)) parsed.next_actions = [];
       return sendJson(res, 200, { agent: parsed, raw });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/agent/run') {
+      const data = await readJson(req);
+      if (!data.model) return sendJson(res, 400, { error: 'model is required' });
+      const goal = String(data.goal || '').trim();
+      if (!goal) return sendJson(res, 400, { error: 'goal is required' });
+      const maxSteps = Math.min(10, Math.max(1, Number(data.maxSteps || 3)));
+      const allowWrite = Boolean(data.allowWrite);
+      const allowTerminal = Boolean(data.allowTerminal);
+      const runId = `run_${Date.now()}`;
+      const trace = [];
+      let context = String(data.context || '');
+      let done = false;
+
+      for (let step = 1; step <= maxSteps; step += 1) {
+        const { parsed, raw } = await runSingleAgentStep({ model: data.model, goal, context, options: data.options || {} });
+        const actionResults = await executeAgentActions(parsed.next_actions || [], { allowWrite, allowTerminal });
+        trace.push({ step, summary: parsed.summary || '', actions: parsed.next_actions || [], actionResults, raw: String(raw).slice(0, 1200) });
+        context = `${context}
+
+[step ${step}] ${parsed.summary || ''}
+${JSON.stringify(actionResults).slice(0, 2000)}`;
+        if (parsed.done) { done = true; break; }
+      }
+
+      const session = { runId, goal, createdAt: new Date().toISOString(), done, allowWrite, allowTerminal, trace };
+      agentSessions.set(runId, session);
+      return sendJson(res, 200, session);
+    }
+
+    if (req.method === 'GET' && req.url === '/api/agent/runs') {
+      const runs = [...agentSessions.values()].slice(-20).reverse();
+      return sendJson(res, 200, { runs });
     }
 
 

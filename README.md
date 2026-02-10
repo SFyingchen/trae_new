@@ -113,3 +113,10 @@ ollama pull qwen2.5-coder:7b
 - Agent 动作流（edit / terminal / ask_user）并可选择性执行
 
 > 注意：要做到“和 VSCode 一模一样”还需要完整插件市场、调试器协议、语言服务器生态等大量能力。本项目当前是本地可安装 IDE + AI Agent 的增强实现。
+
+
+## Agent Core 继续增强
+
+- 新增自动执行模式：Agent 可按目标自动运行 N 步（可配置最大步数）。
+- 可选权限开关：允许写文件 / 允许终端命令（默认更保守）。
+- 每步都有执行追踪（summary + actionResults），便于复盘与审计。

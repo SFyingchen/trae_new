@@ -72,6 +72,11 @@ const agentStepBtn = el('agentStep');
 const agentApplyBtn = el('agentApply');
 const agentSummary = el('agentSummary');
 const agentActionsEl = el('agentActions');
+const agentRunBtn = el('agentRun');
+const agentAllowWrite = el('agentAllowWrite');
+const agentAllowTerminal = el('agentAllowTerminal');
+const agentMaxSteps = el('agentMaxSteps');
+const agentRunTrace = el('agentRunTrace');
 
 let latestSuggestedCode = '';
 let latestAssistantRaw = '';
@@ -295,6 +300,17 @@ function renderAgentActions() {
   }).join('');
 }
 
+function renderAgentRunTrace(session) {
+  if (!session || !Array.isArray(session.trace) || !session.trace.length) {
+    agentRunTrace.innerHTML = '暂无自动执行记录';
+    return;
+  }
+  agentRunTrace.innerHTML = session.trace.map((t) => {
+    const rows = (t.actionResults || []).map((r) => `${r.type}:${r.status}${r.path ? ` (${r.path})` : ''}${r.command ? ` (${r.command})` : ''}`).join(' | ');
+    return `<div class="task-item"><strong>Step ${t.step}</strong> - ${escapeHtml(t.summary || '')}<div>${escapeHtml(rows)}</div></div>`;
+  }).join('');
+}
+
 async function runAgentStep() {
   const goal = goalInput.value.trim();
   const model = modelSelect.value;
@@ -323,6 +339,36 @@ ${JSON.stringify(latestSearch).slice(0, 1500)}`
   latestAgent = res.agent || null;
   agentSummary.textContent = `${latestAgent?.summary || 'Agent 无摘要'}${latestAgent?.done ? '（已完成）' : ''}`;
   renderAgentActions();
+}
+
+
+async function runAgentAuto() {
+  const goal = goalInput.value.trim();
+  const model = modelSelect.value;
+  if (!goal) return alert('请先输入 Agent 目标');
+  if (!model) return alert('请先选择模型');
+  const context = [
+    `当前文件: ${filePathInput.value || 'untitled.txt'}`,
+    `当前代码:
+${editor.value.slice(0, 3000)}`,
+    `任务计划:
+${taskPlan.map((t, i) => `${i + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n')}`
+  ].join('\n\n');
+  const session = await api('/api/agent/run', {
+    method: 'POST',
+    body: JSON.stringify({
+      model,
+      goal,
+      context,
+      maxSteps: Number(agentMaxSteps.value || 3),
+      allowWrite: Boolean(agentAllowWrite.checked),
+      allowTerminal: Boolean(agentAllowTerminal.checked),
+      options: { temperature: Number(settings.temperature || 0.2) }
+    })
+  });
+  renderAgentRunTrace(session);
+  notify(`Agent 自动执行完成：${session.trace?.length || 0} 步`);
+  await loadTree();
 }
 
 async function applyAgentActions() {
@@ -651,6 +697,7 @@ const commands = [
   { name: '执行任务计划', run: () => executeTaskBtn.click() },
   { name: 'Agent 下一步', run: () => agentStepBtn.click() },
   { name: '应用 Agent 动作', run: () => agentApplyBtn.click() },
+  { name: 'Agent 自动执行N步', run: () => agentRunBtn.click() },
   { name: '解析多文件建议', run: () => parseMultiFileBtn.click() },
   { name: '批量应用多文件建议', run: () => applyMultiFileBtn.click() },
   { name: '切换终端', run: () => toggleTerminalBtn.click() },
@@ -703,6 +750,7 @@ replaceAllBtn.onclick = replaceAll;
 closeFindBtn.onclick = () => findPanel.classList.add('hidden');
 agentStepBtn.onclick = () => runAgentStep().catch((e) => alert(`Agent 执行失败: ${e.message}`));
 agentApplyBtn.onclick = () => applyAgentActions().catch((e) => alert(`应用 Agent 动作失败: ${e.message}`));
+agentRunBtn.onclick = () => runAgentAuto().catch((e) => notify(`Agent 自动执行失败: ${e.message}`));
 
 editor.addEventListener('input', () => {
   markDirty(true);
@@ -796,6 +844,7 @@ persistSettings();
 renderTaskPlan();
 renderMultiFileList();
 renderAgentActions();
+renderAgentRunTrace(null);
 renderTerminalTabs();
 setInlineSuggestion('');
 updateLineNumbers();
