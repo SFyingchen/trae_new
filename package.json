@@ -1,11 +1,36 @@
 {
   "name": "trae-local-ai-editor",
-  "version": "0.1.0",
-  "description": "Local AI editor inspired by Codex/Trae, powered by Ollama without login",
-  "main": "server.js",
+  "version": "0.2.0",
+  "description": "Desktop local AI editor inspired by Codex/Trae, powered by Ollama without login",
+  "main": "desktop/main.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "desktop": "electron .",
+    "desktop:dev": "electron .",
+    "build:dir": "electron-builder --dir",
+    "build:win": "electron-builder --win nsis",
+    "build:mac": "electron-builder --mac dmg",
+    "build:linux": "electron-builder --linux AppImage"
+  },
+  "build": {
+    "appId": "ai.trae.local.editor",
+    "productName": "Trae Local AI Editor",
+    "files": [
+      "desktop/**/*",
+      "web/**/*",
+      "server.js",
+      "package.json",
+      "README.md",
+      "LICENSE"
+    ],
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
   },
   "license": "MIT"
 }
