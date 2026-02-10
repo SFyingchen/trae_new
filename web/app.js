@@ -9,7 +9,10 @@ const promptInput = el('prompt');
 const askAIBtn = el('askAI');
 const applyAIBtn = el('applyAI');
 const messagesEl = el('messages');
+const providerSelect = el('providerSelect');
 const modelSelect = el('modelSelect');
+const providerBaseUrl = el('providerBaseUrl');
+const providerApiKey = el('providerApiKey');
 const refreshModelsBtn = el('refreshModels');
 const searchInput = el('searchInput');
 const searchBtn = el('searchBtn');
@@ -94,7 +97,10 @@ let activeTerminalId = 1;
 let latestAgent = null;
 const settings = {
   temperature: Number(localStorage.getItem('temperature') || 0.2),
-  systemPrompt: localStorage.getItem('systemPrompt') || '你是一个编程助手，输出清晰说明和完整 updated_code 代码块。'
+  systemPrompt: localStorage.getItem('systemPrompt') || '你是一个编程助手，输出清晰说明和完整 updated_code 代码块。',
+  provider: localStorage.getItem('provider') || 'ollama',
+  providerBaseUrl: localStorage.getItem('providerBaseUrl') || '',
+  providerApiKey: localStorage.getItem('providerApiKey') || ''
 };
 
 async function api(url, options = {}) {
@@ -102,6 +108,16 @@ async function api(url, options = {}) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
+}
+
+function currentProviderPayload() {
+  return {
+    provider: providerSelect.value || settings.provider || 'ollama',
+    providerConfig: {
+      baseUrl: providerBaseUrl.value.trim(),
+      apiKey: providerApiKey.value.trim()
+    }
+  };
 }
 
 function escapeHtml(text = '') {
@@ -234,9 +250,23 @@ async function loadTree() {
   renderTree(data.tree, fileTree);
 }
 
+async function loadProviders() {
+  const data = await api('/api/providers');
+  providerSelect.innerHTML = '';
+  (data.providers || []).forEach((p) => {
+    const option = document.createElement('option');
+    option.value = p.id;
+    option.textContent = p.name;
+    providerSelect.appendChild(option);
+  });
+  providerSelect.value = settings.provider || 'ollama';
+  providerBaseUrl.value = settings.providerBaseUrl || '';
+  providerApiKey.value = settings.providerApiKey || '';
+}
+
 async function loadModels() {
   modelSelect.innerHTML = '';
-  const data = await api('/api/models');
+  const data = await api('/api/models', { method: 'POST', body: JSON.stringify(currentProviderPayload()) });
   data.models.forEach((model) => {
     const option = document.createElement('option');
     option.value = model;
@@ -329,6 +359,7 @@ ${JSON.stringify(latestSearch).slice(0, 1500)}`
   const res = await api('/api/agent/step', {
     method: 'POST',
     body: JSON.stringify({
+      ...currentProviderPayload(),
       model,
       goal,
       context,
@@ -357,6 +388,7 @@ ${taskPlan.map((t, i) => `${i + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n
   const session = await api('/api/agent/run', {
     method: 'POST',
     body: JSON.stringify({
+      ...currentProviderPayload(),
       model,
       goal,
       context,
@@ -528,7 +560,7 @@ planTaskBtn.onclick = async () => {
   try {
     const res = await api('/api/plan', {
       method: 'POST',
-      body: JSON.stringify({ model, goal, options: { temperature: Number(settings.temperature || 0.2) } })
+      body: JSON.stringify({ ...currentProviderPayload(), model, goal, options: { temperature: Number(settings.temperature || 0.2) } })
     });
     taskPlan.length = 0;
     res.steps.forEach((text) => taskPlan.push({ text, done: false }));
@@ -578,7 +610,7 @@ diagnoseTerminalErrorBtn.onclick = async () => {
   if (!model) return alert('请先选择模型');
   const res = await api('/api/diagnose-error', {
     method: 'POST',
-    body: JSON.stringify({ model, stderr: latestTerminalError, command: terminalCommand.value.trim(), options: { temperature: 0.1 } })
+    body: JSON.stringify({ ...currentProviderPayload(), model, stderr: latestTerminalError, command: terminalCommand.value.trim(), options: { temperature: 0.1 } })
   });
   addMessage('assistant', `终端错误诊断：
 ${res.diagnosis}`);
@@ -607,6 +639,7 @@ askAIBtn.onclick = async () => {
     const result = await api('/api/chat', {
       method: 'POST',
       body: JSON.stringify({
+        ...currentProviderPayload(),
         model,
         options: { temperature: Number(settings.temperature || 0.2) },
         messages: [
@@ -729,17 +762,27 @@ paletteInput.oninput = () => renderPalette(paletteInput.value.trim());
 function persistSettings() {
   localStorage.setItem('temperature', String(settings.temperature));
   localStorage.setItem('systemPrompt', settings.systemPrompt);
+  localStorage.setItem('provider', settings.provider);
+  localStorage.setItem('providerBaseUrl', settings.providerBaseUrl);
+  localStorage.setItem('providerApiKey', settings.providerApiKey);
   temperatureInput.value = String(settings.temperature);
   systemPromptInput.value = settings.systemPrompt;
+  providerSelect.value = settings.provider;
+  providerBaseUrl.value = settings.providerBaseUrl;
+  providerApiKey.value = settings.providerApiKey;
 }
 openSettingsBtn.onclick = () => {
   settingsModal.classList.remove('hidden');
   persistSettings();
 };
 closeSettingsBtn.onclick = () => settingsModal.classList.add('hidden');
+providerSelect.onchange = () => { settings.provider = providerSelect.value; persistSettings(); loadModels().catch((e) => notify(`加载模型失败: ${e.message}`)); };
 saveSettingsBtn.onclick = () => {
   settings.temperature = Number(temperatureInput.value || 0.2);
   settings.systemPrompt = systemPromptInput.value.trim() || settings.systemPrompt;
+  settings.provider = providerSelect.value || settings.provider;
+  settings.providerBaseUrl = providerBaseUrl.value.trim();
+  settings.providerApiKey = providerApiKey.value.trim();
   persistSettings();
   settingsModal.classList.add('hidden');
 };
@@ -783,7 +826,7 @@ window.addEventListener('keydown', (e) => {
     const before = editor.value.slice(Math.max(0, pos - 300), pos);
     api('/api/complete', {
       method: 'POST',
-      body: JSON.stringify({ model, code: editor.value, cursorContext: before, options: { temperature: 0.1 } })
+      body: JSON.stringify({ ...currentProviderPayload(), model, code: editor.value, cursorContext: before, options: { temperature: 0.1 } })
     }).then((r) => setInlineSuggestion(r.suggestion || '')).catch((err) => setInlineSuggestion(`补全失败: ${err.message}`));
   }
   if (e.key === 'Tab' && latestCompletion && document.activeElement === editor) {
@@ -836,10 +879,16 @@ function bindSplitter(splitterEl) {
 bindSplitter(leftSplitter);
 bindSplitter(rightSplitter);
 
-refreshModelsBtn.onclick = () => loadModels().catch((e) => notify(`加载模型失败: ${e.message}`));
+refreshModelsBtn.onclick = () => {
+  settings.provider = providerSelect.value || settings.provider;
+  settings.providerBaseUrl = providerBaseUrl.value.trim();
+  settings.providerApiKey = providerApiKey.value.trim();
+  persistSettings();
+  loadModels().catch((e) => notify(`加载模型失败: ${e.message}`));
+};
 
 loadTree().catch((e) => notify(`加载文件树失败: ${e.message}`));
-loadModels().catch((e) => notify(`加载模型失败: ${e.message}`));
+loadProviders().then(() => loadModels()).catch((e) => notify(`加载模型失败: ${e.message}`));
 persistSettings();
 renderTaskPlan();
 renderMultiFileList();

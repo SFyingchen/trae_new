@@ -67,6 +67,7 @@ ollama pull qwen2.5-coder:7b
 - `PORT`：服务端口，默认 `3000`（桌面模式默认走 `3344`）
 - `WORKSPACE_ROOT`：工作区目录，默认当前目录
 - `OLLAMA_BASE_URL`：Ollama 地址，默认 `http://127.0.0.1:11434`
+- `OPENAI_BASE_URL`：可选，OpenAI-Compatible 默认地址（也可在界面输入）
 - `ALLOW_DANGEROUS_COMMANDS`：是否允许高危终端命令，默认 `false`
 
 ---
@@ -120,3 +121,10 @@ ollama pull qwen2.5-coder:7b
 - 新增自动执行模式：Agent 可按目标自动运行 N 步（可配置最大步数）。
 - 可选权限开关：允许写文件 / 允许终端命令（默认更保守）。
 - 每步都有执行追踪（summary + actionResults），便于复盘与审计。
+
+
+## 模型提供商支持（新增）
+
+- 支持本地 Ollama（默认）
+- 支持 OpenAI-Compatible 提供商（可配置 Base URL + API Key）
+- Provider 配置会保存在本地，可在界面中切换并刷新模型列表

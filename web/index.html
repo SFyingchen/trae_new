@@ -10,7 +10,10 @@
   <header>
     <h1>Trae Local AI Editor（本地增强版）</h1>
     <div class="toolbar">
+      <label>提供商 <select id="providerSelect"></select></label>
       <label>模型 <select id="modelSelect"></select></label>
+      <input id="providerBaseUrl" placeholder="Provider Base URL" style="min-width:220px" />
+      <input id="providerApiKey" placeholder="API Key(可选)" type="password" style="min-width:200px" />
       <button id="refreshModels">刷新模型</button>
       <button id="openPalette">命令面板</button>
       <button id="toggleTerminal">终端</button>

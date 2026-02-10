@@ -173,10 +173,70 @@ async function saveFileWithSnapshot(relPath, content) {
   await fsp.writeFile(full, content ?? '', 'utf8');
 }
 
-async function runSingleAgentStep({ model, goal, context = '', options = {} }) {
-  const response = await proxyOllamaChat({
+
+
+function normalizeProvider(provider = 'ollama') {
+  const p = String(provider || 'ollama').toLowerCase();
+  if (['ollama', 'openai', 'openai-compatible', 'openai_compatible'].includes(p)) return p === 'openai' ? 'openai-compatible' : p;
+  return 'ollama';
+}
+
+async function chatWithProvider({ provider = 'ollama', model, messages, options = {}, providerConfig = {} }) {
+  const normalized = normalizeProvider(provider);
+
+  if (normalized === 'ollama') {
+    const baseUrl = providerConfig.baseUrl || OLLAMA_BASE_URL;
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, options, stream: false })
+    });
+    if (!response.ok) throw new Error(`Ollama error ${response.status}: ${await response.text()}`);
+    return { message: (await response.json()).message };
+  }
+
+  const baseUrl = (providerConfig.baseUrl || 'https://api.openai.com').replace(/\/$/, '');
+  const apiKey = providerConfig.apiKey || '';
+  const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+    },
+    body: JSON.stringify({ model, messages, temperature: options.temperature ?? 0.2 })
+  });
+  if (!response.ok) throw new Error(`Provider error ${response.status}: ${await response.text()}`);
+  const data = await response.json();
+  return { message: { role: 'assistant', content: data?.choices?.[0]?.message?.content || '' } };
+}
+
+async function listModelsByProvider({ provider = 'ollama', providerConfig = {} }) {
+  const normalized = normalizeProvider(provider);
+  if (normalized === 'ollama') {
+    const baseUrl = providerConfig.baseUrl || OLLAMA_BASE_URL;
+    const response = await fetch(`${baseUrl}/api/tags`);
+    if (!response.ok) throw new Error(await response.text() || 'Unable to fetch models from Ollama');
+    const data = await response.json();
+    return (data.models || []).map((m) => m.name);
+  }
+  const baseUrl = (providerConfig.baseUrl || 'https://api.openai.com').replace(/\/$/, '');
+  const apiKey = providerConfig.apiKey || '';
+  const response = await fetch(`${baseUrl}/v1/models`, {
+    headers: {
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+    }
+  });
+  if (!response.ok) throw new Error(await response.text() || 'Unable to fetch models from provider');
+  const data = await response.json();
+  return (data.data || []).map((m) => m.id);
+}
+
+async function runSingleAgentStep({ model, goal, context = '', options = {}, provider = 'ollama', providerConfig = {} }) {
+  const response = await chatWithProvider({
     model,
     options,
+    provider,
+    providerConfig,
     messages: [
       {
         role: 'system',
@@ -244,13 +304,7 @@ async function executeAgentActions(actions, opts = {}) {
 }
 
 async function proxyOllamaChat(payload) {
-  const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, stream: false })
-  });
-  if (!response.ok) throw new Error(`Ollama error ${response.status}: ${await response.text()}`);
-  return response.json();
+  return chatWithProvider({ provider: 'ollama', ...payload });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -325,8 +379,10 @@ const server = http.createServer(async (req, res) => {
       if (!data.model) return sendJson(res, 400, { error: 'model is required' });
       const goal = String(data.goal || '').trim();
       if (!goal) return sendJson(res, 400, { error: 'goal is required' });
-      const response = await proxyOllamaChat({
+      const response = await chatWithProvider({
         model: data.model,
+        provider: data.provider || 'ollama',
+        providerConfig: data.providerConfig || {},
         options: data.options || {},
         messages: [
           { role: 'system', content: '你是任务规划助手。只返回 JSON 数组，每个元素是简短步骤字符串。不要输出其他内容。' },
@@ -354,7 +410,9 @@ const server = http.createServer(async (req, res) => {
         model: data.model,
         goal,
         context: data.context || '',
-        options: data.options || {}
+        options: data.options || {},
+        provider: data.provider || 'ollama',
+        providerConfig: data.providerConfig || {}
       });
       return sendJson(res, 200, { agent: parsed, raw });
     }
@@ -373,7 +431,7 @@ const server = http.createServer(async (req, res) => {
       let done = false;
 
       for (let step = 1; step <= maxSteps; step += 1) {
-        const { parsed, raw } = await runSingleAgentStep({ model: data.model, goal, context, options: data.options || {} });
+        const { parsed, raw } = await runSingleAgentStep({ model: data.model, goal, context, options: data.options || {}, provider: data.provider || 'ollama', providerConfig: data.providerConfig || {} });
         const actionResults = await executeAgentActions(parsed.next_actions || [], { allowWrite, allowTerminal });
         trace.push({ step, summary: parsed.summary || '', actions: parsed.next_actions || [], actionResults, raw: String(raw).slice(0, 1200) });
         context = `${context}
@@ -399,8 +457,10 @@ ${JSON.stringify(actionResults).slice(0, 2000)}`;
       if (!data.model) return sendJson(res, 400, { error: 'model is required' });
       const code = String(data.code || '').slice(0, 8000);
       const cursorContext = String(data.cursorContext || '').slice(0, 1500);
-      const response = await proxyOllamaChat({
+      const response = await chatWithProvider({
         model: data.model,
+        provider: data.provider || 'ollama',
+        providerConfig: data.providerConfig || {},
         options: data.options || {},
         messages: [
           {
@@ -428,8 +488,10 @@ ${cursorContext}
       if (!data.model) return sendJson(res, 400, { error: 'model is required' });
       const stderr = String(data.stderr || '').slice(0, 12000);
       const command = String(data.command || '');
-      const response = await proxyOllamaChat({
+      const response = await chatWithProvider({
         model: data.model,
+        provider: data.provider || 'ollama',
+        providerConfig: data.providerConfig || {},
         options: data.options || {},
         messages: [
           {
@@ -448,18 +510,32 @@ ${stderr}`
       return sendJson(res, 200, { diagnosis: response?.message?.content || '无诊断结果' });
     }
 
-    if (req.method === 'GET' && req.url === '/api/models') {
-      const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
-      if (!response.ok) return sendJson(res, 502, { error: await response.text() || 'Unable to fetch models from Ollama' });
-      const data = await response.json();
-      return sendJson(res, 200, { models: (data.models || []).map((m) => m.name) });
+    if (req.method === 'GET' && req.url === '/api/providers') {
+      return sendJson(res, 200, {
+        providers: [
+          { id: 'ollama', name: 'Ollama (local)', needsApiKey: false, defaultBaseUrl: OLLAMA_BASE_URL },
+          { id: 'openai-compatible', name: 'OpenAI Compatible', needsApiKey: true, defaultBaseUrl: 'https://api.openai.com' }
+        ]
+      });
     }
+
+    if (req.method === 'GET' && req.url === '/api/models') {
+      const models = await listModelsByProvider({ provider: 'ollama', providerConfig: {} });
+      return sendJson(res, 200, { models });
+    }
+
+    if (req.method === 'POST' && req.url === '/api/models') {
+      const data = await readJson(req);
+      const models = await listModelsByProvider({ provider: data.provider || 'ollama', providerConfig: data.providerConfig || {} });
+      return sendJson(res, 200, { models });
+    }
+
 
     if (req.method === 'POST' && req.url === '/api/chat') {
       const data = await readJson(req);
       if (!data.model) return sendJson(res, 400, { error: 'model is required' });
       if (!Array.isArray(data.messages)) return sendJson(res, 400, { error: 'messages array is required' });
-      return sendJson(res, 200, await proxyOllamaChat({ model: data.model, messages: data.messages, options: data.options || {} }));
+      return sendJson(res, 200, await chatWithProvider({ provider: data.provider || 'ollama', providerConfig: data.providerConfig || {}, model: data.model, messages: data.messages, options: data.options || {} }));
     }
 
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) return sendFile(res, path.join(WEB_ROOT, 'index.html'));
