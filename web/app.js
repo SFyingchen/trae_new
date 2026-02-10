@@ -21,38 +21,70 @@ async function api(url, options = {}) {
   return data;
 }
 
+function escapeHtml(text = '') {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renderAssistant(content) {
+  return `<pre>${escapeHtml(content)}</pre>`;
+}
+
 function renderTree(nodes, container) {
-  container.innerHTML = '';
+  const list = document.createElement('div');
   nodes.forEach((node) => {
     const row = document.createElement('div');
     row.className = 'tree-item';
+
     if (node.type === 'dir') {
-      row.textContent = `📁 ${node.name}`;
-      container.appendChild(row);
-      renderTree(node.children, row);
+      const label = document.createElement('div');
+      label.className = 'tree-dir';
+      label.textContent = `📁 ${node.name}`;
+
+      const children = document.createElement('div');
+      children.className = 'tree-children';
+      renderTree(node.children, children);
+
+      label.onclick = () => {
+        children.classList.toggle('collapsed');
+      };
+
+      row.appendChild(label);
+      row.appendChild(children);
     } else {
       row.classList.add('tree-file');
       row.textContent = `📄 ${node.name}`;
       row.onclick = async () => {
-        const file = await api(`/api/file?path=${encodeURIComponent(node.path)}`);
-        filePathInput.value = file.path;
-        editor.value = file.content;
+        try {
+          const file = await api(`/api/file?path=${encodeURIComponent(node.path)}`);
+          filePathInput.value = file.path;
+          editor.value = file.content;
+        } catch (error) {
+          alert(`加载文件失败: ${error.message}`);
+        }
       };
-      container.appendChild(row);
     }
+
+    list.appendChild(row);
   });
+  container.appendChild(list);
 }
 
 function addMessage(role, content) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
-  div.innerHTML = role === 'assistant' ? marked.parse(content) : content;
+  div.innerHTML = role === 'assistant' ? renderAssistant(content) : escapeHtml(content);
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 async function loadTree() {
   const data = await api('/api/tree');
+  fileTree.innerHTML = '';
   renderTree(data.tree, fileTree);
 }
 
@@ -77,12 +109,16 @@ async function loadModels() {
 saveFileBtn.onclick = async () => {
   const path = filePathInput.value.trim();
   if (!path) return alert('请先输入文件路径');
-  await api('/api/file', {
-    method: 'POST',
-    body: JSON.stringify({ path, content: editor.value }),
-  });
-  await loadTree();
-  alert('已保存');
+  try {
+    await api('/api/file', {
+      method: 'POST',
+      body: JSON.stringify({ path, content: editor.value }),
+    });
+    await loadTree();
+    alert('已保存');
+  } catch (error) {
+    alert(`保存失败: ${error.message}`);
+  }
 };
 
 askAIBtn.onclick = async () => {
@@ -104,25 +140,33 @@ askAIBtn.onclick = async () => {
     '不要省略代码。',
   ].join('\n');
 
-  const result = await api('/api/chat', {
-    method: 'POST',
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: `文件路径: ${currentPath}\n\n当前代码:\n\n${currentCode}\n\n需求:\n${userPrompt}`,
-        },
-      ],
-    }),
-  });
+  askAIBtn.disabled = true;
 
-  const content = result?.message?.content || '模型没有返回内容';
-  addMessage('assistant', content);
+  try {
+    const result = await api('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: `文件路径: ${currentPath}\n\n当前代码:\n\n${currentCode}\n\n需求:\n${userPrompt}`,
+          },
+        ],
+      }),
+    });
 
-  const matched = content.match(/```updated_code\n([\s\S]*?)```/);
-  latestSuggestedCode = matched ? matched[1].trimEnd() : '';
+    const content = result?.message?.content || '模型没有返回内容';
+    addMessage('assistant', content);
+
+    const matched = content.match(/```updated_code\n([\s\S]*?)```/);
+    latestSuggestedCode = matched ? matched[1].trimEnd() : '';
+  } catch (error) {
+    addMessage('assistant', `请求失败：${error.message}`);
+  } finally {
+    askAIBtn.disabled = false;
+  }
 };
 
 applyAIBtn.onclick = () => {
@@ -133,7 +177,9 @@ applyAIBtn.onclick = () => {
   editor.value = latestSuggestedCode;
 };
 
-refreshModelsBtn.onclick = loadModels;
+refreshModelsBtn.onclick = () => {
+  loadModels().catch((e) => alert(`加载模型失败: ${e.message}`));
+};
 
 loadTree().catch((e) => alert(`加载文件树失败: ${e.message}`));
 loadModels().catch((e) => alert(`加载模型失败: ${e.message}`));

@@ -48,13 +48,16 @@ input, select, button, textarea {
 .chat-pane { border-left: 1px solid #334155; display: flex; flex-direction: column; }
 #messages { flex: 1; overflow: auto; padding: 12px; }
 .message { margin-bottom: 12px; padding: 10px; border-radius: 8px; }
-.user { background: #1d4ed8; }
+.user { background: #1d4ed8; white-space: pre-wrap; }
 .assistant { background: #334155; }
+.assistant pre { white-space: pre-wrap; margin: 0; font-family: inherit; }
 .chat-input { padding: 12px; border-top: 1px solid #334155; }
 #prompt { width: 100%; min-height: 120px; margin-bottom: 8px; }
 .chat-buttons { display: flex; gap: 8px; }
 button { cursor: pointer; }
 .tree-item { margin-left: 12px; }
+.tree-dir { cursor: pointer; font-weight: 600; padding: 2px 0; }
+.tree-children.collapsed { display: none; }
 .tree-file { cursor: pointer; padding: 3px 0; }
-.tree-file:hover { color: #93c5fd; }
+.tree-file:hover, .tree-dir:hover { color: #93c5fd; }
 .toolbar { display: flex; gap: 8px; align-items: center; }

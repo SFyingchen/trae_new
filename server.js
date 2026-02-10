@@ -6,12 +6,22 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 const WORKSPACE_ROOT = path.resolve(process.env.WORKSPACE_ROOT || process.cwd());
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+const WEB_ROOT = path.join(__dirname, 'web');
 
-function safePath(requestPath = '') {
+function safeWorkspacePath(requestPath = '') {
   const normalized = path.normalize(requestPath).replace(/^([/\\])+/, '');
   const resolved = path.resolve(WORKSPACE_ROOT, normalized);
   if (!resolved.startsWith(WORKSPACE_ROOT)) {
     throw new Error('Path traversal is not allowed');
+  }
+  return resolved;
+}
+
+function safeWebPath(requestPath = '') {
+  const normalized = path.normalize(requestPath).replace(/^([/\\])+/, '');
+  const resolved = path.resolve(WEB_ROOT, normalized);
+  if (!resolved.startsWith(WEB_ROOT)) {
+    throw new Error('Static path traversal is not allowed');
   }
   return resolved;
 }
@@ -34,19 +44,24 @@ function sendJson(res, code, data) {
 }
 
 function sendFile(res, filePath) {
-  const ext = path.extname(filePath);
+  const ext = path.extname(filePath).toLowerCase();
   const contentTypes = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',
     '.css': 'text/css; charset=utf-8',
     '.json': 'application/json; charset=utf-8'
   };
+
   const stream = fs.createReadStream(filePath);
+  stream.on('open', () => {
+    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain; charset=utf-8' });
+  });
   stream.on('error', () => {
-    res.writeHead(404);
+    if (!res.headersSent) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    }
     res.end('Not found');
   });
-  res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain; charset=utf-8' });
   stream.pipe(res);
 }
 
@@ -85,6 +100,10 @@ async function proxyOllamaChat(payload) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method === 'GET' && req.url === '/api/health') {
+      return sendJson(res, 200, { ok: true });
+    }
+
     if (req.method === 'GET' && req.url === '/api/tree') {
       const tree = await listTree(WORKSPACE_ROOT);
       return sendJson(res, 200, { root: WORKSPACE_ROOT, tree });
@@ -92,14 +111,14 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && req.url.startsWith('/api/file?')) {
       const fileRel = new URL(req.url, `http://${req.headers.host}`).searchParams.get('path') || '';
-      const full = safePath(fileRel);
+      const full = safeWorkspacePath(fileRel);
       const content = await fsp.readFile(full, 'utf8');
       return sendJson(res, 200, { path: fileRel, content });
     }
 
     if (req.method === 'POST' && req.url === '/api/file') {
       const data = await readJson(req);
-      const full = safePath(data.path || '');
+      const full = safeWorkspacePath(data.path || '');
       await fsp.mkdir(path.dirname(full), { recursive: true });
       await fsp.writeFile(full, data.content ?? '', 'utf8');
       return sendJson(res, 200, { ok: true });
@@ -125,14 +144,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
-      return sendFile(res, path.join(__dirname, 'web/index.html'));
+      return sendFile(res, path.join(WEB_ROOT, 'index.html'));
     }
 
     if (req.method === 'GET' && req.url.startsWith('/web/')) {
-      return sendFile(res, path.join(__dirname, req.url));
+      const staticPath = safeWebPath(req.url.slice('/web/'.length));
+      return sendFile(res, staticPath);
     }
 
-    res.writeHead(404);
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Not Found');
   } catch (error) {
     sendJson(res, 500, { error: error.message || 'Internal Server Error' });
