@@ -8,15 +8,14 @@
 </head>
 <body>
   <header>
-    <h1>Trae Local AI Editor（免登录 + 本地 Ollama）</h1>
+    <h1>Trae Local AI Editor（本地增强版）</h1>
     <div class="toolbar">
       <label>模型 <select id="modelSelect"></select></label>
-      <input id="searchInput" placeholder="全局搜索关键字" />
-      <button id="searchBtn">搜索</button>
+      <button id="refreshModels">刷新模型</button>
       <button id="openPalette">命令面板</button>
       <button id="toggleTerminal">终端</button>
       <button id="openSettings">设置</button>
-      <button id="refreshModels">刷新模型</button>
+      <button id="openGit">Git</button>
       <button id="newFile">新建</button>
       <button id="renameFile">重命名</button>
       <button id="deleteFile">删除</button>
@@ -31,18 +30,36 @@
       <div class="tabs" id="tabs"></div>
       <div class="file-meta">
         <input id="filePath" placeholder="输入或选择文件路径" />
+        <input id="searchInput" placeholder="全局搜索关键字" />
+        <button id="searchBtn">搜索</button>
         <button id="loadHistory">历史版本</button>
-        <button id="exportSession">导出会话</button>
-        <input id="importSessionFile" type="file" accept="application/json" hidden />
-        <button id="importSession">导入会话</button>
       </div>
       <textarea id="editor" spellcheck="false"></textarea>
       <div id="searchResults" class="search-results"></div>
+
+      <section class="task-panel">
+        <h3>Agent 任务规划（Cline 风格）</h3>
+        <textarea id="goalInput" placeholder="输入目标，例如：把 API 模块重构为 service + controller 并补测试"></textarea>
+        <div class="task-actions">
+          <button id="planTask">生成计划</button>
+          <button id="executeTask">按计划生成代码建议</button>
+          <button id="exportSession">导出会话</button>
+          <input id="importSessionFile" type="file" accept="application/json" hidden />
+          <button id="importSession">导入会话</button>
+        </div>
+        <div id="taskList" class="task-list"></div>
+      </section>
+
+      <section class="diff-panel">
+        <h3>补丁预览（当前编辑器 vs AI建议）</h3>
+        <pre id="diffPreview">暂无差异</pre>
+      </section>
+
       <section id="terminalPanel" class="terminal-panel hidden">
         <div class="terminal-toolbar">
-          <input id="terminalCwd" placeholder="终端目录（相对工作区），默认 ." value="." />
+          <input id="terminalCwd" value="." />
           <input id="terminalCommand" placeholder="输入终端命令，例如 npm test" />
-          <button id="runTerminal">运行</button>
+          <button id="runTerminal">运行（需确认）</button>
         </div>
         <pre id="terminalOutput"></pre>
       </section>
@@ -50,24 +67,29 @@
 
     <section class="chat-pane">
       <div class="chat-header">
-        <label><input type="checkbox" id="ctxTree" checked /> 附带文件树上下文</label>
-        <label><input type="checkbox" id="ctxSearch" /> 附带搜索结果上下文</label>
+        <label><input type="checkbox" id="ctxTree" checked /> 文件树上下文</label>
+        <label><input type="checkbox" id="ctxSearch" /> 搜索上下文</label>
       </div>
       <div id="messages"></div>
       <div class="chat-input">
-        <textarea id="prompt" placeholder="描述你希望 AI 做的事（重构、解释、生成测试、修改代码）"></textarea>
+        <textarea id="prompt" placeholder="描述你希望 AI 做的事情"></textarea>
         <div class="chat-buttons">
           <button id="askAI">让 AI 生成建议</button>
           <button id="applyAI">应用到编辑器</button>
         </div>
       </div>
+      <section id="gitPanel" class="git-panel hidden">
+        <h3>Git 状态 / 差异</h3>
+        <button id="refreshGit">刷新 Git 信息</button>
+        <pre id="gitOutput"></pre>
+      </section>
     </section>
   </main>
 
   <div id="paletteModal" class="modal hidden">
     <div class="modal-content">
       <h3>命令面板</h3>
-      <input id="paletteInput" placeholder="输入命令关键字，如：保存 / 搜索 / 终端" />
+      <input id="paletteInput" placeholder="输入命令关键字" />
       <div id="paletteList" class="palette-list"></div>
       <button id="closePalette">关闭</button>
     </div>
@@ -76,9 +98,9 @@
   <div id="settingsModal" class="modal hidden">
     <div class="modal-content">
       <h3>AI 设置</h3>
-      <label>温度 Temperature <input id="temperature" type="number" step="0.1" min="0" max="2" /></label>
+      <label>Temperature <input id="temperature" type="number" step="0.1" min="0" max="2" /></label>
       <label>系统提示词 <textarea id="systemPromptInput"></textarea></label>
-      <button id="saveSettings">保存设置</button>
+      <button id="saveSettings">保存</button>
       <button id="closeSettings">关闭</button>
     </div>
   </div>

@@ -39,14 +39,24 @@ const importSessionBtn = el('importSession');
 const importSessionFile = el('importSessionFile');
 const ctxTree = el('ctxTree');
 const ctxSearch = el('ctxSearch');
+const goalInput = el('goalInput');
+const planTaskBtn = el('planTask');
+const executeTaskBtn = el('executeTask');
+const taskList = el('taskList');
+const diffPreview = el('diffPreview');
+const openGit = el('openGit');
+const gitPanel = el('gitPanel');
+const refreshGit = el('refreshGit');
+const gitOutput = el('gitOutput');
 
 let latestSuggestedCode = '';
-const openTabs = [];
 let latestTree = [];
 let latestSearch = [];
+const openTabs = [];
+const taskPlan = [];
 const settings = {
   temperature: Number(localStorage.getItem('temperature') || 0.2),
-  systemPrompt: localStorage.getItem('systemPrompt') || '你是一个代码编辑助手。输出简短说明+完整 updated_code 代码块。'
+  systemPrompt: localStorage.getItem('systemPrompt') || '你是一个编程助手，输出清晰说明和完整 updated_code 代码块。'
 };
 
 async function api(url, options = {}) {
@@ -137,6 +147,34 @@ async function loadModels() {
   });
 }
 
+function renderTaskPlan() {
+  taskList.innerHTML = taskPlan.map((t, i) => `<div class="task-item"><input type="checkbox" ${t.done ? 'checked' : ''} data-i="${i}" /> ${escapeHtml(t.text)}</div>`).join('') || '暂无任务';
+  taskList.querySelectorAll('input[type="checkbox"]').forEach((c) => {
+    c.onchange = () => { taskPlan[Number(c.dataset.i)].done = c.checked; };
+  });
+}
+
+function buildContext() {
+  const contexts = [];
+  if (ctxTree.checked) contexts.push(`文件树摘要:\n${JSON.stringify(latestTree).slice(0, 2500)}`);
+  if (ctxSearch.checked) contexts.push(`搜索结果:\n${JSON.stringify(latestSearch).slice(0, 2000)}`);
+  if (taskPlan.length) contexts.push(`任务计划:\n${taskPlan.map((t, i) => `${i + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n')}`);
+  return contexts.join('\n\n');
+}
+
+function makeSimpleDiff(a, b) {
+  const A = a.split('\n');
+  const B = b.split('\n');
+  const out = [];
+  const max = Math.max(A.length, B.length);
+  for (let i = 0; i < max; i += 1) {
+    if (A[i] === B[i]) continue;
+    if (A[i] !== undefined) out.push(`- ${A[i]}`);
+    if (B[i] !== undefined) out.push(`+ ${B[i]}`);
+  }
+  return out.join('\n') || '暂无差异';
+}
+
 saveFileBtn.onclick = async () => {
   const path = filePathInput.value.trim();
   if (!path) return alert('请先输入文件路径');
@@ -155,7 +193,7 @@ newFileBtn.onclick = () => {
 renameFileBtn.onclick = async () => {
   const oldPath = filePathInput.value.trim();
   const newPath = prompt('输入新文件路径', oldPath);
-  if (!oldPath || !newPath || newPath === oldPath) return;
+  if (!oldPath || !newPath || oldPath === newPath) return;
   await api('/api/file/rename', { method: 'POST', body: JSON.stringify({ oldPath, newPath }) });
   const idx = openTabs.indexOf(oldPath);
   if (idx >= 0) openTabs.splice(idx, 1, newPath);
@@ -180,7 +218,7 @@ loadHistoryBtn.onclick = async () => {
   if (!p) return;
   const res = await api(`/api/history?path=${encodeURIComponent(p)}`);
   if (!res.snapshots.length) return alert('暂无历史版本');
-  const picked = prompt(`可选历史版本：\n${res.snapshots.join('\n')}`);
+  const picked = prompt(`可选历史版本:\n${res.snapshots.join('\n')}`);
   if (!picked) return;
   await api('/api/history/restore', { method: 'POST', body: JSON.stringify({ path: p, snapshot: picked.trim() }) });
   editor.value = (await api(`/api/file?path=${encodeURIComponent(p)}`)).content;
@@ -192,9 +230,9 @@ searchBtn.onclick = async () => {
   const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
   latestSearch = data.results;
   searchResults.innerHTML = data.results.map((r) => `<div class="result-item" data-path="${escapeHtml(r.path)}"><strong>${escapeHtml(r.path)}</strong><div>${escapeHtml(r.snippet)}</div></div>`).join('') || '<div class="result-item">未找到匹配</div>';
-  searchResults.querySelectorAll('.result-item[data-path]').forEach((el) => {
-    el.onclick = async () => {
-      const p = el.getAttribute('data-path');
+  searchResults.querySelectorAll('.result-item[data-path]').forEach((node) => {
+    node.onclick = async () => {
+      const p = node.getAttribute('data-path');
       const file = await api(`/api/file?path=${encodeURIComponent(p)}`);
       setCurrentPath(file.path);
       editor.value = file.content;
@@ -202,40 +240,57 @@ searchBtn.onclick = async () => {
   });
 };
 
+planTaskBtn.onclick = () => {
+  const goal = goalInput.value.trim();
+  if (!goal) return alert('请先输入任务目标');
+  taskPlan.length = 0;
+  goal.split(/[，。,.;；\n]+/).map((s) => s.trim()).filter(Boolean).forEach((text) => taskPlan.push({ text, done: false }));
+  if (!taskPlan.length) taskPlan.push({ text: goal, done: false });
+  renderTaskPlan();
+};
+
+executeTaskBtn.onclick = () => {
+  const remain = taskPlan.filter((t) => !t.done).map((t) => t.text).join('；');
+  if (!remain) return alert('没有待执行任务');
+  promptInput.value = `请按以下计划执行并修改当前文件：${remain}`;
+  askAIBtn.click();
+};
+
 runTerminal.onclick = async () => {
+  const cmd = terminalCommand.value.trim();
+  if (!cmd) return;
+  if (!confirm(`确认执行命令？\n${cmd}`)) return;
   terminalOutput.textContent = 'Running...';
   try {
-    const result = await api('/api/terminal', {
-      method: 'POST',
-      body: JSON.stringify({ command: terminalCommand.value.trim(), cwd: terminalCwd.value.trim() || '.' })
-    });
-    terminalOutput.textContent = result.output || '(no output)';
-  } catch (error) {
-    terminalOutput.textContent = `Error: ${error.message}`;
+    const data = await api('/api/terminal', { method: 'POST', body: JSON.stringify({ command: cmd, cwd: terminalCwd.value.trim() || '.' }) });
+    terminalOutput.textContent = data.output || '(no output)';
+  } catch (e) {
+    terminalOutput.textContent = `Error: ${e.message}`;
   }
 };
 
 toggleTerminalBtn.onclick = () => terminalPanel.classList.toggle('hidden');
-
-function buildContext() {
-  const contexts = [];
-  if (ctxTree.checked) contexts.push(`文件树摘要:\n${JSON.stringify(latestTree).slice(0, 3000)}`);
-  if (ctxSearch.checked && latestSearch.length) contexts.push(`最近搜索结果:\n${JSON.stringify(latestSearch).slice(0, 2000)}`);
-  return contexts.join('\n\n');
-}
+openGit.onclick = () => gitPanel.classList.toggle('hidden');
+refreshGit.onclick = async () => {
+  try {
+    const status = await api('/api/git/status');
+    const diff = await api('/api/git/diff');
+    gitOutput.textContent = `# status\n${status.output}\n\n# diff\n${diff.output || '(no diff)'}`;
+  } catch (e) {
+    gitOutput.textContent = e.message;
+  }
+};
 
 askAIBtn.onclick = async () => {
   const model = modelSelect.value;
   if (!model) return alert('请先选择模型');
   const userPrompt = promptInput.value.trim();
   if (!userPrompt) return alert('请先输入你的需求');
-
   const currentPath = filePathInput.value.trim() || 'untitled.txt';
   const currentCode = editor.value;
-  const prompt = `${userPrompt}\n\n${buildContext()}`;
-  addMessage('user', prompt);
+  const context = buildContext();
+  addMessage('user', `${userPrompt}\n\n${context}`);
   askAIBtn.disabled = true;
-
   try {
     const result = await api('/api/chat', {
       method: 'POST',
@@ -244,17 +299,17 @@ askAIBtn.onclick = async () => {
         options: { temperature: Number(settings.temperature || 0.2) },
         messages: [
           { role: 'system', content: settings.systemPrompt },
-          { role: 'user', content: `文件路径: ${currentPath}\n\n当前代码:\n${currentCode}\n\n需求:\n${prompt}` },
-        ],
-      }),
+          { role: 'user', content: `文件路径: ${currentPath}\n\n当前代码:\n${currentCode}\n\n需求:\n${userPrompt}\n\n上下文:\n${context}` }
+        ]
+      })
     });
-
     const content = result?.message?.content || '模型没有返回内容';
     addMessage('assistant', content);
     const matched = content.match(/```updated_code\n([\s\S]*?)```/);
     latestSuggestedCode = matched ? matched[1].trimEnd() : '';
-  } catch (error) {
-    addMessage('assistant', `请求失败：${error.message}`);
+    diffPreview.textContent = makeSimpleDiff(editor.value, latestSuggestedCode || editor.value);
+  } catch (e) {
+    addMessage('assistant', `请求失败：${e.message}`);
   } finally {
     askAIBtn.disabled = false;
   }
@@ -263,6 +318,7 @@ askAIBtn.onclick = async () => {
 applyAIBtn.onclick = () => {
   if (!latestSuggestedCode) return alert('没有可应用代码');
   editor.value = latestSuggestedCode;
+  diffPreview.textContent = makeSimpleDiff(editor.value, latestSuggestedCode);
 };
 
 function getMessages() {
@@ -270,7 +326,15 @@ function getMessages() {
 }
 
 exportSessionBtn.onclick = () => {
-  const data = { filePath: filePathInput.value, openTabs, messages: getMessages(), prompt: promptInput.value, settings };
+  const data = {
+    filePath: filePathInput.value,
+    openTabs,
+    goal: goalInput.value,
+    plan: taskPlan,
+    prompt: promptInput.value,
+    messages: getMessages(),
+    settings,
+  };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -281,46 +345,35 @@ exportSessionBtn.onclick = () => {
 
 importSessionBtn.onclick = () => importSessionFile.click();
 importSessionFile.onchange = async () => {
-  const file = importSessionFile.files[0];
-  if (!file) return;
-  const data = JSON.parse(await file.text());
+  const f = importSessionFile.files[0];
+  if (!f) return;
+  const data = JSON.parse(await f.text());
+  goalInput.value = data.goal || '';
+  taskPlan.length = 0;
+  (data.plan || []).forEach((p) => taskPlan.push(p));
+  renderTaskPlan();
+  promptInput.value = data.prompt || '';
   messagesEl.innerHTML = '';
   (data.messages || []).forEach((m) => addMessage(m.role, m.text));
-  promptInput.value = data.prompt || '';
-  if (data.settings) {
-    settings.temperature = Number(data.settings.temperature ?? settings.temperature);
-    settings.systemPrompt = data.settings.systemPrompt || settings.systemPrompt;
-    persistSettings();
-  }
-  if (Array.isArray(data.openTabs)) {
-    openTabs.length = 0;
-    data.openTabs.forEach((t) => openTabs.push(t));
-  }
-  if (data.filePath) {
-    try {
-      const r = await api(`/api/file?path=${encodeURIComponent(data.filePath)}`);
-      setCurrentPath(r.path);
-      editor.value = r.content;
-    } catch {}
-  }
-  renderTabs();
 };
 
 const commands = [
   { name: '保存文件', run: () => saveFileBtn.click() },
-  { name: '新建文件', run: () => newFileBtn.click() },
   { name: '全局搜索', run: () => searchBtn.click() },
+  { name: '生成任务计划', run: () => planTaskBtn.click() },
+  { name: '执行任务计划', run: () => executeTaskBtn.click() },
   { name: '切换终端', run: () => toggleTerminalBtn.click() },
+  { name: '打开Git面板', run: () => openGit.click() },
+  { name: '请求AI建议', run: () => askAIBtn.click() },
   { name: '打开设置', run: () => openSettingsBtn.click() },
-  { name: '请求 AI', run: () => askAIBtn.click() },
 ];
 
 function renderPalette(filter = '') {
   const shown = commands.filter((c) => c.name.includes(filter));
-  paletteList.innerHTML = shown.map((c, idx) => `<button class="palette-item" data-idx="${idx}">${c.name}</button>`).join('');
+  paletteList.innerHTML = shown.map((c, i) => `<button class="palette-item" data-i="${i}">${c.name}</button>`).join('');
   paletteList.querySelectorAll('.palette-item').forEach((btn) => {
     btn.onclick = () => {
-      shown[Number(btn.dataset.idx)].run();
+      shown[Number(btn.dataset.i)].run();
       paletteModal.classList.add('hidden');
     };
   });
@@ -348,7 +401,6 @@ function persistSettings() {
   temperatureInput.value = String(settings.temperature);
   systemPromptInput.value = settings.systemPrompt;
 }
-
 openSettingsBtn.onclick = () => {
   settingsModal.classList.remove('hidden');
   persistSettings();

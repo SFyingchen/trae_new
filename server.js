@@ -86,10 +86,7 @@ function sendFile(res, filePath) {
 
 async function listTree(dir, relBase = '') {
   const entries = await fsp.readdir(dir, { withFileTypes: true });
-  const filtered = entries
-    .filter((e) => !['node_modules', '.git', '.trae-history'].includes(e.name))
-    .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name, 'zh-Hans-CN'));
-
+  const filtered = entries.filter((e) => !['node_modules', '.git', '.trae-history'].includes(e.name)).sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name, 'zh-Hans-CN'));
   const out = [];
   for (const entry of filtered) {
     const relPath = path.posix.join(relBase, entry.name);
@@ -99,28 +96,26 @@ async function listTree(dir, relBase = '') {
   return out;
 }
 
-async function searchFiles(dir, keyword, relBase = '', maxResults = 100) {
+async function searchFiles(dir, keyword, relBase = '', maxResults = 120) {
   const entries = await fsp.readdir(dir, { withFileTypes: true });
   const result = [];
   for (const entry of entries) {
     if (['node_modules', '.git', '.trae-history'].includes(entry.name)) continue;
     const relPath = path.posix.join(relBase, entry.name);
     const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      const children = await searchFiles(fullPath, keyword, relPath, maxResults - result.length);
-      result.push(...children);
-    } else if (entry.isFile()) {
+    if (entry.isDirectory()) result.push(...await searchFiles(fullPath, keyword, relPath, maxResults - result.length));
+    else if (entry.isFile()) {
       if (result.length >= maxResults) break;
       try {
         const content = await fsp.readFile(fullPath, 'utf8');
         const index = content.toLowerCase().indexOf(keyword.toLowerCase());
         if (index >= 0) {
-          const start = Math.max(0, index - 40);
-          const end = Math.min(content.length, index + 80);
+          const start = Math.max(0, index - 45);
+          const end = Math.min(content.length, index + 100);
           result.push({ path: relPath, snippet: content.slice(start, end).replaceAll('\n', ' ') });
         }
       } catch {
-        // skip unreadable
+        // ignore unreadable
       }
     }
     if (result.length >= maxResults) break;
@@ -137,7 +132,17 @@ async function runTerminalCommand(command, cwdRel = '') {
     shell: '/bin/bash'
   });
   const combined = `${stdout || ''}${stderr ? `\n${stderr}` : ''}`;
-  return combined.slice(0, 20_000);
+  return combined.slice(0, 20000);
+}
+
+async function runGit(command) {
+  const { stdout, stderr } = await execAsync(command, {
+    cwd: WORKSPACE_ROOT,
+    timeout: 10_000,
+    maxBuffer: 1024 * 1024,
+    shell: '/bin/bash'
+  });
+  return `${stdout || ''}${stderr ? `\n${stderr}` : ''}`.trim();
 }
 
 async function proxyOllamaChat(payload) {
@@ -153,7 +158,6 @@ async function proxyOllamaChat(payload) {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && req.url === '/api/health') return sendJson(res, 200, { ok: true });
-
     if (req.method === 'GET' && req.url === '/api/tree') return sendJson(res, 200, { root: WORKSPACE_ROOT, tree: await listTree(WORKSPACE_ROOT) });
 
     if (req.method === 'GET' && req.url.startsWith('/api/file?')) {
@@ -175,10 +179,8 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && req.url === '/api/file/rename') {
       const data = await readJson(req);
-      const oldPath = safeWorkspacePath(data.oldPath || '');
-      const newPath = safeWorkspacePath(data.newPath || '');
-      await fsp.mkdir(path.dirname(newPath), { recursive: true });
-      await fsp.rename(oldPath, newPath);
+      await fsp.mkdir(path.dirname(safeWorkspacePath(data.newPath || '')), { recursive: true });
+      await fsp.rename(safeWorkspacePath(data.oldPath || ''), safeWorkspacePath(data.newPath || ''));
       return sendJson(res, 200, { ok: true });
     }
 
@@ -195,10 +197,9 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && req.url === '/api/history/restore') {
       const data = await readJson(req);
-      const targetFile = safeWorkspacePath(data.path || '');
       const snapshotPath = path.resolve(HISTORY_ROOT, data.snapshot || '');
       if (!snapshotPath.startsWith(HISTORY_ROOT)) return sendJson(res, 400, { error: 'invalid snapshot' });
-      await fsp.writeFile(targetFile, await fsp.readFile(snapshotPath, 'utf8'), 'utf8');
+      await fsp.writeFile(safeWorkspacePath(data.path || ''), await fsp.readFile(snapshotPath, 'utf8'), 'utf8');
       return sendJson(res, 200, { ok: true });
     }
 
@@ -212,6 +213,9 @@ const server = http.createServer(async (req, res) => {
       if (!data.command || typeof data.command !== 'string') return sendJson(res, 400, { error: 'command is required' });
       return sendJson(res, 200, { output: await runTerminalCommand(data.command, data.cwd || '.') });
     }
+
+    if (req.method === 'GET' && req.url === '/api/git/status') return sendJson(res, 200, { output: await runGit('git status --short && git branch --show-current') });
+    if (req.method === 'GET' && req.url === '/api/git/diff') return sendJson(res, 200, { output: await runGit('git diff -- . ":(exclude).trae-history"') });
 
     if (req.method === 'GET' && req.url === '/api/models') {
       const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
