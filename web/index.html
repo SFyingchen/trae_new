@@ -34,7 +34,22 @@
         <button id="searchBtn">搜索</button>
         <button id="loadHistory">历史版本</button>
       </div>
-      <textarea id="editor" spellcheck="false"></textarea>
+
+      <section id="findPanel" class="find-panel hidden">
+        <input id="findText" placeholder="查找（Ctrl+F）" />
+        <input id="replaceText" placeholder="替换（Ctrl+H）" />
+        <button id="findNext">下一个</button>
+        <button id="replaceOne">替换</button>
+        <button id="replaceAll">全部替换</button>
+        <button id="closeFind">关闭</button>
+      </section>
+
+      <div class="editor-wrap">
+        <pre id="lineNumbers" class="line-numbers">1</pre>
+        <textarea id="editor" spellcheck="false"></textarea>
+      </div>
+      <div id="statusBar" class="status-bar">Ln 1, Col 1 · UTF-8 · Spaces: 2 · txt · Saved</div>
+
       <div id="searchResults" class="search-results"></div>
 
       <section class="task-panel">

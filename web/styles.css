@@ -5,12 +5,16 @@ h1 { margin: 0; font-size: 18px; white-space: nowrap; }
 main { display: grid; grid-template-columns: 280px 1fr 430px; height: calc(100vh - 58px); }
 aside { border-right: 1px solid #334155; overflow: auto; padding: 12px; }
 .editor-pane { display: flex; flex-direction: column; min-width: 0; }
-.tabs, .file-meta, .task-actions, .terminal-toolbar, .chat-header, .toolbar, .batch-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tabs, .file-meta, .task-actions, .terminal-toolbar, .chat-header, .toolbar, .batch-actions, .find-panel { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .tabs { padding: 8px; border-bottom: 1px solid #334155; }
 .file-meta { padding: 10px; border-bottom: 1px solid #334155; }
+.find-panel { padding: 8px 10px; border-bottom: 1px solid #334155; background: #111827; }
 input, select, button, textarea { border: 1px solid #475569; background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 8px; }
 #filePath { flex: 1; min-width: 180px; }
-#editor { width: 100%; min-height: 210px; flex: 1; resize: none; border: none; border-radius: 0; font-family: "JetBrains Mono", monospace; line-height: 1.5; }
+.editor-wrap { display: grid; grid-template-columns: 64px 1fr; border-top: 1px solid #334155; border-bottom: 1px solid #334155; min-height: 220px; flex: 1; }
+.line-numbers { margin: 0; padding: 8px 6px; text-align: right; color: #94a3b8; background: #0b1220; user-select: none; overflow: hidden; font-family: "JetBrains Mono", monospace; line-height: 1.5; }
+#editor { width: 100%; min-height: 220px; flex: 1; resize: none; border: none; border-radius: 0; font-family: "JetBrains Mono", monospace; line-height: 1.5; }
+.status-bar { height: 28px; border-top: 1px solid #334155; background: #0b1220; color: #93c5fd; display: flex; align-items: center; padding: 0 10px; font-size: 12px; }
 .search-results, .task-list { max-height: 160px; overflow: auto; border-top: 1px solid #334155; }
 .result-item, .task-item { padding: 8px 10px; border-bottom: 1px solid #1e293b; }
 .result-item { cursor: pointer; }

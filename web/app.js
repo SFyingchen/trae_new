@@ -1,6 +1,8 @@
 const el = (id) => document.getElementById(id);
 const fileTree = el('fileTree');
 const editor = el('editor');
+const lineNumbers = el('lineNumbers');
+const statusBar = el('statusBar');
 const filePathInput = el('filePath');
 const saveFileBtn = el('saveFile');
 const promptInput = el('prompt');
@@ -51,11 +53,20 @@ const gitOutput = el('gitOutput');
 const parseMultiFileBtn = el('parseMultiFile');
 const applyMultiFileBtn = el('applyMultiFile');
 const multiFileList = el('multiFileList');
+const findPanel = el('findPanel');
+const findText = el('findText');
+const replaceText = el('replaceText');
+const findNextBtn = el('findNext');
+const replaceOneBtn = el('replaceOne');
+const replaceAllBtn = el('replaceAll');
+const closeFindBtn = el('closeFind');
 
 let latestSuggestedCode = '';
 let latestAssistantRaw = '';
 let latestTree = [];
 let latestSearch = [];
+let dirty = false;
+let findIndex = -1;
 const openTabs = [];
 const taskPlan = [];
 const multiFileChanges = [];
@@ -75,6 +86,31 @@ function escapeHtml(text = '') {
   return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
+function getLanguageByPath(p = '') {
+  const ext = (p.split('.').pop() || 'txt').toLowerCase();
+  const map = { js: 'JavaScript', ts: 'TypeScript', json: 'JSON', md: 'Markdown', css: 'CSS', html: 'HTML', py: 'Python', java: 'Java', go: 'Go', rs: 'Rust' };
+  return map[ext] || ext.toUpperCase();
+}
+
+function updateLineNumbers() {
+  const lines = editor.value.split('\n').length;
+  lineNumbers.textContent = Array.from({ length: lines }, (_, i) => i + 1).join('\n');
+}
+
+function updateStatusBar() {
+  const pos = editor.selectionStart;
+  const before = editor.value.slice(0, pos);
+  const line = before.split('\n').length;
+  const col = before.length - before.lastIndexOf('\n');
+  const lang = getLanguageByPath(filePathInput.value.trim());
+  statusBar.textContent = `Ln ${line}, Col ${col} · UTF-8 · Spaces: 2 · ${lang} · ${dirty ? 'Unsaved' : 'Saved'}`;
+}
+
+function markDirty(v = true) {
+  dirty = v;
+  updateStatusBar();
+}
+
 function addMessage(role, content) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
@@ -87,6 +123,7 @@ function setCurrentPath(path) {
   filePathInput.value = path;
   if (path && !openTabs.includes(path)) openTabs.push(path);
   renderTabs();
+  updateStatusBar();
 }
 
 function renderTabs() {
@@ -99,6 +136,9 @@ function renderTabs() {
       const file = await api(`/api/file?path=${encodeURIComponent(tabPath)}`);
       filePathInput.value = file.path;
       editor.value = file.content;
+      markDirty(false);
+      updateLineNumbers();
+      updateStatusBar();
       renderTabs();
     };
     tabsEl.appendChild(tab);
@@ -127,6 +167,8 @@ function renderTree(nodes, container) {
         const file = await api(`/api/file?path=${encodeURIComponent(node.path)}`);
         setCurrentPath(file.path);
         editor.value = file.content;
+        markDirty(false);
+        updateLineNumbers();
       };
     }
     list.appendChild(row);
@@ -195,12 +237,55 @@ function parseMultiFileBlocks(text) {
   return blocks;
 }
 
+function openFind(replace = false) {
+  findPanel.classList.remove('hidden');
+  if (replace) replaceText.focus();
+  else findText.focus();
+}
+
+function findNext() {
+  const query = findText.value;
+  if (!query) return;
+  const from = Math.max(0, editor.selectionEnd);
+  let idx = editor.value.indexOf(query, from);
+  if (idx < 0) idx = editor.value.indexOf(query, 0);
+  if (idx < 0) return;
+  findIndex = idx;
+  editor.focus();
+  editor.setSelectionRange(idx, idx + query.length);
+  updateStatusBar();
+}
+
+function replaceOne() {
+  const q = findText.value;
+  if (!q) return;
+  const sel = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+  if (sel === q) {
+    const before = editor.value.slice(0, editor.selectionStart);
+    const after = editor.value.slice(editor.selectionEnd);
+    editor.value = `${before}${replaceText.value}${after}`;
+    markDirty(true);
+    updateLineNumbers();
+  }
+  findNext();
+}
+
+function replaceAll() {
+  const q = findText.value;
+  if (!q) return;
+  editor.value = editor.value.split(q).join(replaceText.value);
+  markDirty(true);
+  updateLineNumbers();
+  updateStatusBar();
+}
+
 saveFileBtn.onclick = async () => {
   const path = filePathInput.value.trim();
   if (!path) return alert('请先输入文件路径');
   await api('/api/file', { method: 'POST', body: JSON.stringify({ path, content: editor.value }) });
   setCurrentPath(path);
   await loadTree();
+  markDirty(false);
 };
 
 newFileBtn.onclick = () => {
@@ -208,6 +293,8 @@ newFileBtn.onclick = () => {
   if (!p) return;
   setCurrentPath(p.trim());
   editor.value = '';
+  markDirty(true);
+  updateLineNumbers();
 };
 
 renameFileBtn.onclick = async () => {
@@ -231,6 +318,8 @@ deleteFileBtn.onclick = async () => {
   editor.value = '';
   renderTabs();
   await loadTree();
+  markDirty(false);
+  updateLineNumbers();
 };
 
 loadHistoryBtn.onclick = async () => {
@@ -242,6 +331,8 @@ loadHistoryBtn.onclick = async () => {
   if (!picked) return;
   await api('/api/history/restore', { method: 'POST', body: JSON.stringify({ path: p, snapshot: picked.trim() }) });
   editor.value = (await api(`/api/file?path=${encodeURIComponent(p)}`)).content;
+  markDirty(false);
+  updateLineNumbers();
 };
 
 searchBtn.onclick = async () => {
@@ -256,6 +347,8 @@ searchBtn.onclick = async () => {
       const file = await api(`/api/file?path=${encodeURIComponent(p)}`);
       setCurrentPath(file.path);
       editor.value = file.content;
+      markDirty(false);
+      updateLineNumbers();
     };
   });
 };
@@ -349,6 +442,8 @@ askAIBtn.onclick = async () => {
 applyAIBtn.onclick = () => {
   if (!latestSuggestedCode) return alert('没有可应用代码');
   editor.value = latestSuggestedCode;
+  markDirty(true);
+  updateLineNumbers();
 };
 
 parseMultiFileBtn.onclick = () => {
@@ -406,6 +501,8 @@ importSessionFile.onchange = async () => {
 
 const commands = [
   { name: '保存文件', run: () => saveFileBtn.click() },
+  { name: '查找', run: () => openFind(false) },
+  { name: '替换', run: () => openFind(true) },
   { name: '全局搜索', run: () => searchBtn.click() },
   { name: 'AI生成计划', run: () => planTaskBtn.click() },
   { name: '执行任务计划', run: () => executeTaskBtn.click() },
@@ -437,13 +534,6 @@ openPaletteBtn.onclick = () => {
 closePaletteBtn.onclick = () => paletteModal.classList.add('hidden');
 paletteInput.oninput = () => renderPalette(paletteInput.value.trim());
 
-document.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-    e.preventDefault();
-    openPaletteBtn.click();
-  }
-});
-
 function persistSettings() {
   localStorage.setItem('temperature', String(settings.temperature));
   localStorage.setItem('systemPrompt', settings.systemPrompt);
@@ -462,6 +552,40 @@ saveSettingsBtn.onclick = () => {
   settingsModal.classList.add('hidden');
 };
 
+findNextBtn.onclick = findNext;
+replaceOneBtn.onclick = replaceOne;
+replaceAllBtn.onclick = replaceAll;
+closeFindBtn.onclick = () => findPanel.classList.add('hidden');
+
+editor.addEventListener('input', () => {
+  markDirty(true);
+  updateLineNumbers();
+});
+editor.addEventListener('click', updateStatusBar);
+editor.addEventListener('keyup', updateStatusBar);
+editor.addEventListener('scroll', () => {
+  lineNumbers.scrollTop = editor.scrollTop;
+});
+
+window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    saveFileBtn.click();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    openFind(false);
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+    e.preventDefault();
+    openFind(true);
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    openPaletteBtn.click();
+  }
+});
+
 refreshModelsBtn.onclick = () => loadModels().catch((e) => alert(`加载模型失败: ${e.message}`));
 
 loadTree().catch((e) => alert(`加载文件树失败: ${e.message}`));
@@ -469,3 +593,5 @@ loadModels().catch((e) => alert(`加载模型失败: ${e.message}`));
 persistSettings();
 renderTaskPlan();
 renderMultiFileList();
+updateLineNumbers();
+updateStatusBar();

@@ -87,3 +87,12 @@ ollama pull qwen2.5-coder:7b
 ## 说明
 
 这是 Trae/Cline 风格的本地实现，不是官方 Trae 客户端。
+
+
+## VSCode 风格编辑增强（本次新增）
+
+- 代码行号栏（随滚动同步）
+- 状态栏（行列号 / 编码 / 缩进 / 语言 / 保存状态）
+- 查找替换面板（Ctrl+F / Ctrl+H）
+- 快捷键保存（Ctrl+S）
+- 文件脏状态（Unsaved/Saved）
