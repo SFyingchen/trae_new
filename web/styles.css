@@ -85,3 +85,8 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .mention-bar button { font-size: 12px; padding: 5px 9px; border-radius: 999px; }
 #mentionPreview { max-height: 120px; overflow: auto; border-top: 1px solid var(--line); margin: 8px 0; background: #0e1a30; }
+
+.right-pane-tabs { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: #0f1a30; }
+.right-pane-tabs button { padding: 6px 10px; border-radius: 8px; font-size: 12px; }
+.right-pane-tabs button.active { background: #1f3e74; border-color: #4c76b8; color: #d9e9ff; }
+.chat-section { display: flex; flex-direction: column; flex: 1; min-height: 0; }

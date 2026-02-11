@@ -108,7 +108,14 @@
         <label><input type="checkbox" id="ctxTree" checked /> 文件树上下文</label>
         <label><input type="checkbox" id="ctxSearch" /> 搜索上下文</label>
       </div>
-      <section class="cue-panel">
+      <div class="right-pane-tabs" id="rightPaneTabs">
+        <button data-right-tab="cueSection">Cue</button>
+        <button data-right-tab="agentSection">Agent</button>
+        <button data-right-tab="chatSection" class="active">Chat</button>
+        <button data-right-tab="problemsPanel">Problems</button>
+        <button data-right-tab="gitPanel">Git</button>
+      </div>
+      <section class="cue-panel" id="cueSection">
         <h3>Trae Cue（快捷意图）</h3>
         <div class="cue-actions" id="cueTemplates">
           <button data-cue="explain">解释当前代码</button>
@@ -125,7 +132,7 @@
         <div id="cueSuggestions" class="task-list">暂无 Cue 建议</div>
       </section>
 
-      <section class="agent-panel">
+      <section class="agent-panel" id="agentSection">
         <h3>AI Agent 助手</h3>
         <div class="agent-actions">
           <button id="agentStep">Agent 下一步</button>
@@ -151,6 +158,7 @@
         <div id="agentSessions" class="task-list">暂无会话</div>
         <div id="agentRunTrace" class="task-list">暂无自动执行记录</div>
       </section>
+      <section id="chatSection" class="chat-section">
       <div id="messages"></div>
       <div class="chat-input">
         <div class="cue-actions mention-bar" id="mentionQuickActions">
@@ -168,6 +176,7 @@
           <button id="applyAI">应用到编辑器</button>
         </div>
       </div>
+      </section>
       <section id="problemsPanel" class="git-panel">
         <h3>Problems</h3>
         <button id="clearProblems">清空</button>

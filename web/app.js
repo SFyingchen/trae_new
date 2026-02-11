@@ -54,6 +54,10 @@ const importSessionBtn = el('importSession');
 const importSessionFile = el('importSessionFile');
 const ctxTree = el('ctxTree');
 const ctxSearch = el('ctxSearch');
+const rightPaneTabs = el('rightPaneTabs');
+const cueSection = el('cueSection');
+const agentSection = el('agentSection');
+const chatSection = el('chatSection');
 const goalInput = el('goalInput');
 const planTaskBtn = el('planTask');
 const executeTaskBtn = el('executeTask');
@@ -160,6 +164,18 @@ function notify(message) {
   toast.classList.remove('hidden');
   clearTimeout(notify._t);
   notify._t = setTimeout(() => toast.classList.add('hidden'), 2200);
+}
+
+function setRightPaneTab(tabId) {
+  const sections = [cueSection, agentSection, chatSection, problemsPanel, gitPanel].filter(Boolean);
+  sections.forEach((sec) => {
+    if (sec.id === tabId) sec.classList.remove('hidden');
+    else sec.classList.add('hidden');
+  });
+  rightPaneTabs.querySelectorAll('button[data-right-tab]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.rightTab === tabId);
+  });
+  localStorage.setItem('rightPaneTab', tabId);
 }
 
 function renderProblems() {
@@ -902,7 +918,7 @@ runTerminal.onclick = async () => {
 };
 
 toggleTerminalBtn.onclick = () => terminalPanel.classList.toggle('hidden');
-openGit.onclick = () => gitPanel.classList.toggle('hidden');
+openGit.onclick = () => setRightPaneTab('gitPanel');
 refreshGit.onclick = async () => {
   try {
     const status = await api('/api/git/status');
@@ -1052,11 +1068,14 @@ const commands = [
   { name: '批量应用多文件建议', run: () => applyMultiFileBtn.click() },
   { name: '切换终端', run: () => toggleTerminalBtn.click() },
   { name: '打开Git面板', run: () => openGit.click() },
-  { name: '打开Problems', run: () => problemsPanel.classList.toggle('hidden') },
+  { name: '打开Problems', run: () => setRightPaneTab('problemsPanel') },
   { name: '请求AI建议', run: () => askAIBtn.click() },
   { name: 'Cue: 解释当前代码', run: () => runCue(cuePromptTemplates.explain) },
   { name: 'Cue: 修复当前问题', run: () => runCue(cuePromptTemplates.fix) },
   { name: '打开设置', run: () => openSettingsBtn.click() },
+  { name: '右侧切到 Cue', run: () => setRightPaneTab('cueSection') },
+  { name: '右侧切到 Agent', run: () => setRightPaneTab('agentSection') },
+  { name: '右侧切到 Chat', run: () => setRightPaneTab('chatSection') },
 ];
 
 function renderPalette(filter = '') {
@@ -1132,6 +1151,9 @@ cueTemplates.querySelectorAll('button[data-cue]').forEach((btn) => {
 });
 runCueBtn.onclick = () => runCue(cueInput.value).catch((e) => notify(`Cue 执行失败: ${e.message}`));
 suggestCueBtn.onclick = () => suggestCueItems().catch((e) => notify(`Cue 建议生成失败: ${e.message}`));
+rightPaneTabs.querySelectorAll('button[data-right-tab]').forEach((btn) => {
+  btn.onclick = () => setRightPaneTab(btn.dataset.rightTab);
+});
 mentionQuickActions.querySelectorAll('button[data-mention]').forEach((btn) => {
   btn.onclick = () => {
     const token = btn.dataset.mention || '';
@@ -1261,6 +1283,8 @@ refreshAgentSessions().catch((e) => notify(`刷新会话失败: ${e.message}`));
 renderTerminalTabs();
 setInlineSuggestion('');
 updateLineNumbers();
+const savedRightTab = localStorage.getItem('rightPaneTab') || 'chatSection';
+setRightPaneTab(savedRightTab);
 renderProblems();
 renderMentionPreview(parseMentions(promptInput.value));
 updateStatusBar();

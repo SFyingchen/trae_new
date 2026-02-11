@@ -154,6 +154,11 @@ ollama pull qwen2.5-coder:7b
 - 支持 AI 自动生成 Cue 建议（`/api/cue/suggest`）。
 
 
+## 布局体验增强（Trae 风格）
+
+- 右侧工作区新增标签切换（Cue / Agent / Chat / Problems / Git）。
+- 支持记忆右侧标签页选择，重启后恢复。
+
 ## Context 与 @Mentions（新增）
 
 - 支持在对话框里使用 `@selection` `@file:path` `@folder:path` `@tree` `@search` `@problems` `@terminal`。
