@@ -153,7 +153,16 @@
       </section>
       <div id="messages"></div>
       <div class="chat-input">
-        <textarea id="prompt" placeholder="描述你希望 AI 做的事情"></textarea>
+        <div class="cue-actions mention-bar" id="mentionQuickActions">
+          <button data-mention="@selection">@selection</button>
+          <button data-mention="@tree">@tree</button>
+          <button data-mention="@search">@search</button>
+          <button data-mention="@problems">@problems</button>
+          <button data-mention="@terminal">@terminal</button>
+          <button data-mention="@file:">@file:</button>
+        </div>
+        <textarea id="prompt" placeholder="描述你希望 AI 做的事情；支持 @selection @file:path @tree @search @problems @terminal"></textarea>
+        <div id="mentionPreview" class="task-list">未检测到 @mentions</div>
         <div class="chat-buttons">
           <button id="askAI">让 AI 生成建议</button>
           <button id="applyAI">应用到编辑器</button>

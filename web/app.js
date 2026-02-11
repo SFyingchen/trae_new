@@ -6,6 +6,8 @@ const statusBar = el('statusBar');
 const filePathInput = el('filePath');
 const saveFileBtn = el('saveFile');
 const promptInput = el('prompt');
+const mentionQuickActions = el('mentionQuickActions');
+const mentionPreview = el('mentionPreview');
 const askAIBtn = el('askAI');
 const applyAIBtn = el('applyAI');
 const messagesEl = el('messages');
@@ -329,12 +331,94 @@ function renderMultiFileList() {
   multiFileList.innerHTML = multiFileChanges.map((c, i) => `<div class="task-item"><input type="checkbox" data-i="${i}" checked /> <strong>${escapeHtml(c.path)}</strong> (${c.content.length} chars)</div>`).join('') || '暂无多文件改动';
 }
 
+
 function buildContext() {
   const contexts = [];
-  if (ctxTree.checked) contexts.push(`文件树摘要:\n${JSON.stringify(latestTree).slice(0, 2500)}`);
-  if (ctxSearch.checked) contexts.push(`搜索结果:\n${JSON.stringify(latestSearch).slice(0, 2000)}`);
-  if (taskPlan.length) contexts.push(`任务计划:\n${taskPlan.map((t, i) => `${i + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n')}`);
+  if (ctxTree.checked) contexts.push(`文件树摘要:
+${JSON.stringify(latestTree).slice(0, 2500)}`);
+  if (ctxSearch.checked) contexts.push(`搜索结果:
+${JSON.stringify(latestSearch).slice(0, 2000)}`);
+  if (taskPlan.length) contexts.push(`任务计划:
+${taskPlan.map((t, i) => `${i + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n')}`);
   return contexts.join('\n\n');
+}
+
+function parseMentions(text = '') {
+  const tokens = String(text).match(/@(selection|tree|search|problems|terminal|file:[^\s]+|folder:[^\s]+)/g) || [];
+  return [...new Set(tokens)];
+}
+
+function renderMentionPreview(tokens = []) {
+  if (!tokens.length) {
+    mentionPreview.innerHTML = '未检测到 @mentions';
+    return;
+  }
+  mentionPreview.innerHTML = tokens.map((t) => `<div class="task-item">${escapeHtml(t)}</div>`).join('');
+}
+
+function flattenTree(nodes = [], out = []) {
+  for (const node of nodes) {
+    out.push(node);
+    if (Array.isArray(node.children)) flattenTree(node.children, out);
+  }
+  return out;
+}
+
+async function resolveMentions(tokens = []) {
+  const chunks = [];
+  const flatTree = flattenTree(latestTree, []);
+
+  for (const token of tokens) {
+    if (token === '@selection') {
+      const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd).trim();
+      if (selected) chunks.push(`[@selection]\n${selected.slice(0, 2200)}`);
+      continue;
+    }
+    if (token === '@tree') {
+      chunks.push(`[@tree]\n${JSON.stringify(latestTree).slice(0, 3000)}`);
+      continue;
+    }
+    if (token === '@search') {
+      chunks.push(`[@search]\n${JSON.stringify(latestSearch).slice(0, 2500)}`);
+      continue;
+    }
+    if (token === '@problems') {
+      chunks.push(`[@problems]\n${JSON.stringify(problems.slice(0, 20)).slice(0, 2000)}`);
+      continue;
+    }
+    if (token === '@terminal') {
+      const t = activeTerminal();
+      chunks.push(`[@terminal]\n${String(t?.output || '').slice(0, 2500)}`);
+      continue;
+    }
+    if (token.startsWith('@file:')) {
+      const path = token.slice('@file:'.length).trim();
+      if (!path) continue;
+      try {
+        const file = await api(`/api/file?path=${encodeURIComponent(path)}`);
+        chunks.push(`[@file:${path}]\n${String(file.content || '').slice(0, 3500)}`);
+      } catch (e) {
+        chunks.push(`[@file:${path}] 读取失败: ${e.message}`);
+      }
+      continue;
+    }
+    if (token.startsWith('@folder:')) {
+      const prefix = token.slice('@folder:'.length).trim();
+      if (!prefix) continue;
+      const matches = flatTree.filter((n) => String(n.path || '').startsWith(prefix)).slice(0, 60).map((n) => n.path);
+      chunks.push(`[@folder:${prefix}]\n${matches.join('\n')}`);
+    }
+  }
+
+  return chunks.join('\n\n');
+}
+
+async function buildContextWithMentions(userPrompt) {
+  const mentions = parseMentions(userPrompt);
+  renderMentionPreview(mentions);
+  const mentionContext = mentions.length ? await resolveMentions(mentions) : '';
+  const cleanPrompt = String(userPrompt || '').replace(/@(selection|tree|search|problems|terminal|file:[^\s]+|folder:[^\s]+)/g, '').replace(/\s{2,}/g, ' ').trim();
+  return { mentions, mentionContext, cleanPrompt: cleanPrompt || String(userPrompt || '').trim() };
 }
 
 
@@ -859,8 +943,10 @@ askAIBtn.onclick = async () => {
   if (!userPrompt) return alert('请先输入你的需求');
   const currentPath = filePathInput.value.trim() || 'untitled.txt';
   const currentCode = editor.value;
-  const context = buildContext();
-  addMessage('user', `${userPrompt}\n\n${context}`);
+  const { mentions, mentionContext, cleanPrompt } = await buildContextWithMentions(userPrompt);
+  const context = [buildContext(), mentionContext].filter(Boolean).join('\n\n');
+  const mentionTip = mentions.length ? `\n\nMentions: ${mentions.join(', ')}` : '';
+  addMessage('user', `${cleanPrompt}${mentionTip}\n\n${context}`);
   askAIBtn.disabled = true;
   try {
     const result = await api('/api/chat', {
@@ -871,7 +957,7 @@ askAIBtn.onclick = async () => {
         options: { temperature: Number(settings.temperature || 0.2) },
         messages: [
           { role: 'system', content: `${settings.systemPrompt}\n如果需要改多个文件，可用格式：\`\`\`file:path/to/file\\n完整文件内容\`\`\` 返回。` },
-          { role: 'user', content: `文件路径: ${currentPath}\n\n当前代码:\n${currentCode}\n\n需求:\n${userPrompt}\n\n上下文:\n${context}` }
+          { role: 'user', content: `文件路径: ${currentPath}\n\n当前代码:\n${currentCode}\n\n需求:\n${cleanPrompt}\n\n上下文:\n${context}` }
         ]
       })
     });
@@ -1046,6 +1132,16 @@ cueTemplates.querySelectorAll('button[data-cue]').forEach((btn) => {
 });
 runCueBtn.onclick = () => runCue(cueInput.value).catch((e) => notify(`Cue 执行失败: ${e.message}`));
 suggestCueBtn.onclick = () => suggestCueItems().catch((e) => notify(`Cue 建议生成失败: ${e.message}`));
+mentionQuickActions.querySelectorAll('button[data-mention]').forEach((btn) => {
+  btn.onclick = () => {
+    const token = btn.dataset.mention || '';
+    const spacer = promptInput.value.trim() ? ' ' : '';
+    promptInput.value = `${promptInput.value}${spacer}${token}`;
+    promptInput.focus();
+    renderMentionPreview(parseMentions(promptInput.value));
+  };
+});
+promptInput.addEventListener('input', () => renderMentionPreview(parseMentions(promptInput.value)));
 
 editor.addEventListener('input', () => {
   markDirty(true);
@@ -1166,4 +1262,5 @@ renderTerminalTabs();
 setInlineSuggestion('');
 updateLineNumbers();
 renderProblems();
+renderMentionPreview(parseMentions(promptInput.value));
 updateStatusBar();

@@ -152,3 +152,10 @@ ollama pull qwen2.5-coder:7b
 - 新增 Cue 面板：一键触发“解释/修复/优化/测试/重构”等意图。
 - 支持自定义 Cue 文本并直接调用当前 AI 对话链路。
 - 支持 AI 自动生成 Cue 建议（`/api/cue/suggest`）。
+
+
+## Context 与 @Mentions（新增）
+
+- 支持在对话框里使用 `@selection` `@file:path` `@folder:path` `@tree` `@search` `@problems` `@terminal`。
+- 发送请求前会自动解析 mentions 并注入上下文，接近 Cline 的 at-mentions 工作流。
+- 新增 Trae 风格 Context 快捷按钮，减少手动输入。
