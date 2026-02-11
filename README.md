@@ -131,3 +131,14 @@ ollama pull qwen2.5-coder:7b
 - 支持本地 Ollama（默认）
 - 支持 OpenAI-Compatible 提供商（可配置 Base URL + API Key）
 - Provider 配置会保存在本地，可在界面中切换并刷新模型列表
+
+
+## AI Core 模块化（本次重构）
+
+- 将 Provider 能力拆分到 `src/core/provider/client.js`。
+- 将 Agent 核心拆分为：
+  - `src/core/agent/engine.js`（步骤推理、会话推进）
+  - `src/core/agent/schema.js`（模型输出规范化/动作清洗）
+  - `src/core/agent/executor.js`（动作执行器）
+- `server.js` 负责路由编排，核心逻辑在 `src/core` 下维护，便于后续继续对齐 Cline 的 core 设计。
+

@@ -4,6 +4,14 @@ const fsp = require('fs/promises');
 const path = require('path');
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const { chatWithProvider, listModelsByProvider } = require('./src/core/provider/client');
+const {
+  runSingleAgentStep,
+  createAgentSession,
+  generateAgentStepForSession,
+  compactSession,
+  executeAgentActions
+} = require('./src/core/agent/engine');
 
 const execAsync = promisify(exec);
 
@@ -14,8 +22,6 @@ const WEB_ROOT = path.join(__dirname, 'web');
 const HISTORY_ROOT = path.join(WORKSPACE_ROOT, '.trae-history');
 const ALLOW_DANGEROUS_COMMANDS = process.env.ALLOW_DANGEROUS_COMMANDS === 'true';
 const agentSessions = new Map();
-const MAX_AGENT_STEPS = 12;
-const MAX_AGENT_CONTEXT = 7000;
 
 function safeWorkspacePath(requestPath = '') {
   const normalized = path.normalize(requestPath).replace(/^([/\\])+/, '');
@@ -177,231 +183,6 @@ async function saveFileWithSnapshot(relPath, content) {
 
 
 
-function normalizeProvider(provider = 'ollama') {
-  const p = String(provider || 'ollama').toLowerCase();
-  if (['ollama', 'openai', 'openai-compatible', 'openai_compatible'].includes(p)) return p === 'openai' ? 'openai-compatible' : p;
-  return 'ollama';
-}
-
-async function chatWithProvider({ provider = 'ollama', model, messages, options = {}, providerConfig = {} }) {
-  const normalized = normalizeProvider(provider);
-
-  if (normalized === 'ollama') {
-    const baseUrl = providerConfig.baseUrl || OLLAMA_BASE_URL;
-    const response = await fetch(`${baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, options, stream: false })
-    });
-    if (!response.ok) throw new Error(`Ollama error ${response.status}: ${await response.text()}`);
-    return { message: (await response.json()).message };
-  }
-
-  const baseUrl = (providerConfig.baseUrl || 'https://api.openai.com').replace(/\/$/, '');
-  const apiKey = providerConfig.apiKey || '';
-  const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-    },
-    body: JSON.stringify({ model, messages, temperature: options.temperature ?? 0.2 })
-  });
-  if (!response.ok) throw new Error(`Provider error ${response.status}: ${await response.text()}`);
-  const data = await response.json();
-  return { message: { role: 'assistant', content: data?.choices?.[0]?.message?.content || '' } };
-}
-
-async function listModelsByProvider({ provider = 'ollama', providerConfig = {} }) {
-  const normalized = normalizeProvider(provider);
-  if (normalized === 'ollama') {
-    const baseUrl = providerConfig.baseUrl || OLLAMA_BASE_URL;
-    const response = await fetch(`${baseUrl}/api/tags`);
-    if (!response.ok) throw new Error(await response.text() || 'Unable to fetch models from Ollama');
-    const data = await response.json();
-    return (data.models || []).map((m) => m.name);
-  }
-  const baseUrl = (providerConfig.baseUrl || 'https://api.openai.com').replace(/\/$/, '');
-  const apiKey = providerConfig.apiKey || '';
-  const response = await fetch(`${baseUrl}/v1/models`, {
-    headers: {
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-    }
-  });
-  if (!response.ok) throw new Error(await response.text() || 'Unable to fetch models from provider');
-  const data = await response.json();
-  return (data.data || []).map((m) => m.id);
-}
-
-async function runSingleAgentStep({ model, goal, context = '', options = {}, provider = 'ollama', providerConfig = {} }) {
-  const response = await chatWithProvider({
-    model,
-    options,
-    provider,
-    providerConfig,
-    messages: [
-      {
-        role: 'system',
-        content: [
-          '你是 IDE 内的 AI Agent。',
-          '请严格返回 JSON 对象，格式：',
-          '{"summary":"...","next_actions":[{"type":"edit|terminal|ask_user","path":"...","content":"...","command":"...","reason":"..."}],"done":false}',
-          '规则：',
-          '1) 如果要修改代码，优先输出 edit 动作，content 是完整文件内容。',
-          '2) terminal 动作只用于必要命令。',
-          '3) 不要输出 markdown。只输出 JSON。'
-        ].join('\n')
-      },
-      {
-        role: 'user',
-        content: `目标:
-${goal}\n\n当前上下文:
-${String(context).slice(0, 6000)}`
-      }
-    ]
-  });
-
-  const raw = response?.message?.content || '{}';
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    parsed = {
-      summary: raw.slice(0, 500),
-      next_actions: [{ type: 'ask_user', reason: '模型未返回合法 JSON，请人工确认下一步。' }],
-      done: false
-    };
-  }
-  if (!Array.isArray(parsed.next_actions)) parsed.next_actions = [];
-  return { parsed, raw };
-}
-
-function createAgentSession(data = {}) {
-  const maxSteps = Math.min(MAX_AGENT_STEPS, Math.max(1, Number(data.maxSteps || 4)));
-  const now = new Date().toISOString();
-  return {
-    id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    model: data.model,
-    goal: String(data.goal || '').trim(),
-    baseContext: String(data.context || '').slice(0, MAX_AGENT_CONTEXT),
-    provider: data.provider || 'ollama',
-    providerConfig: data.providerConfig || {},
-    options: data.options || {},
-    allowWrite: Boolean(data.allowWrite),
-    allowTerminal: Boolean(data.allowTerminal),
-    requireApproval: data.requireApproval !== false,
-    maxSteps,
-    step: 0,
-    status: 'running',
-    done: false,
-    createdAt: now,
-    updatedAt: now,
-    pendingStep: null,
-    pendingActions: [],
-    trace: [],
-    summary: 'Session created'
-  };
-}
-
-function toHistoryForPrompt(session) {
-  const compact = session.trace.slice(-5).map((t) => ({
-    step: t.step,
-    summary: t.summary || '',
-    actions: (t.actions || []).map((a) => ({ type: a.type, path: a.path, command: a.command, reason: a.reason })),
-    actionResults: (t.actionResults || []).map((r) => ({ type: r.type, status: r.status, path: r.path, command: r.command, error: r.error }))
-  }));
-  return JSON.stringify(compact).slice(0, MAX_AGENT_CONTEXT);
-}
-
-async function generateAgentStepForSession(session) {
-  if (session.done || session.status === 'stopped') return session;
-  if (session.step >= session.maxSteps) {
-    session.done = true;
-    session.status = 'completed';
-    session.summary = `Reached max steps (${session.maxSteps})`;
-    session.updatedAt = new Date().toISOString();
-    return session;
-  }
-
-  const context = [
-    session.baseContext,
-    `会话历史(最近5步): ${toHistoryForPrompt(session)}`
-  ].filter(Boolean).join('\n\n').slice(0, MAX_AGENT_CONTEXT);
-
-  const { parsed, raw } = await runSingleAgentStep({
-    model: session.model,
-    goal: session.goal,
-    context,
-    options: session.options || {},
-    provider: session.provider || 'ollama',
-    providerConfig: session.providerConfig || {}
-  });
-
-  session.step += 1;
-  session.pendingStep = session.step;
-  session.pendingActions = Array.isArray(parsed.next_actions) ? parsed.next_actions : [];
-  session.summary = parsed.summary || '';
-  session.trace.push({
-    step: session.step,
-    summary: parsed.summary || '',
-    actions: session.pendingActions,
-    actionResults: [],
-    done: Boolean(parsed.done),
-    raw: String(raw).slice(0, 1400)
-  });
-
-  const hasExecutableActions = session.pendingActions.some((a) => a.type === 'edit' || a.type === 'terminal');
-  if (session.requireApproval && hasExecutableActions) {
-    session.status = 'waiting_approval';
-  } else {
-    const actionResults = await executeAgentActions(session.pendingActions, {
-      allowWrite: session.allowWrite,
-      allowTerminal: session.allowTerminal
-    });
-    session.trace[session.trace.length - 1].actionResults = actionResults;
-    session.pendingActions = [];
-    session.pendingStep = null;
-    session.status = parsed.done ? 'completed' : 'running';
-  }
-
-  if (parsed.done) {
-    session.done = true;
-    session.status = 'completed';
-    session.pendingActions = [];
-    session.pendingStep = null;
-  }
-
-  if (!session.done && session.step >= session.maxSteps && session.status !== 'waiting_approval') {
-    session.done = true;
-    session.status = 'completed';
-    session.summary = `Reached max steps (${session.maxSteps})`;
-  }
-
-  session.updatedAt = new Date().toISOString();
-  return session;
-}
-
-function compactSession(session) {
-  return {
-    id: session.id,
-    goal: session.goal,
-    model: session.model,
-    provider: session.provider,
-    status: session.status,
-    done: session.done,
-    step: session.step,
-    maxSteps: session.maxSteps,
-    requireApproval: session.requireApproval,
-    allowWrite: session.allowWrite,
-    allowTerminal: session.allowTerminal,
-    createdAt: session.createdAt,
-    updatedAt: session.updatedAt,
-    summary: session.summary,
-    pendingStep: session.pendingStep,
-    pendingActions: session.pendingActions,
-    trace: session.trace
-  };
-}
 
 function getSessionOrThrow(sessionId) {
   const session = agentSessions.get(String(sessionId || ''));
@@ -409,37 +190,8 @@ function getSessionOrThrow(sessionId) {
   return session;
 }
 
-async function executeAgentActions(actions, opts = {}) {
-  const { allowWrite = false, allowTerminal = false } = opts;
-  const results = [];
-  for (const action of actions) {
-    if (action.type === 'edit') {
-      if (allowWrite && action.path && typeof action.content === 'string') {
-        await saveFileWithSnapshot(action.path, action.content);
-        results.push({ type: 'edit', path: action.path, status: 'applied' });
-      } else {
-        results.push({ type: 'edit', path: action.path || '', status: 'skipped' });
-      }
-    } else if (action.type === 'terminal') {
-      if (allowTerminal && action.command) {
-        try {
-          const output = await runTerminalCommand(action.command, action.cwd || '.');
-          results.push({ type: 'terminal', command: action.command, status: 'ran', output: String(output).slice(0, 1200) });
-        } catch (e) {
-          results.push({ type: 'terminal', command: action.command, status: 'error', error: e.message });
-        }
-      } else {
-        results.push({ type: 'terminal', command: action.command || '', status: 'skipped' });
-      }
-    } else {
-      results.push({ type: action.type || 'ask_user', reason: action.reason || '', status: 'pending_user' });
-    }
-  }
-  return results;
-}
-
 async function proxyOllamaChat(payload) {
-  return chatWithProvider({ provider: 'ollama', ...payload });
+  return chatWithProvider({ provider: 'ollama', ollamaBaseUrl: OLLAMA_BASE_URL, ...payload });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -515,6 +267,7 @@ const server = http.createServer(async (req, res) => {
       const goal = String(data.goal || '').trim();
       if (!goal) return sendJson(res, 400, { error: 'goal is required' });
       const response = await chatWithProvider({
+        ollamaBaseUrl: OLLAMA_BASE_URL,
         model: data.model,
         provider: data.provider || 'ollama',
         providerConfig: data.providerConfig || {},
@@ -547,7 +300,8 @@ const server = http.createServer(async (req, res) => {
         context: data.context || '',
         options: data.options || {},
         provider: data.provider || 'ollama',
-        providerConfig: data.providerConfig || {}
+        providerConfig: data.providerConfig || {},
+        chatWithProvider: (payload) => chatWithProvider({ ollamaBaseUrl: OLLAMA_BASE_URL, ...payload })
       });
       return sendJson(res, 200, { agent: parsed, raw });
     }
@@ -566,8 +320,8 @@ const server = http.createServer(async (req, res) => {
       let done = false;
 
       for (let step = 1; step <= maxSteps; step += 1) {
-        const { parsed, raw } = await runSingleAgentStep({ model: data.model, goal, context, options: data.options || {}, provider: data.provider || 'ollama', providerConfig: data.providerConfig || {} });
-        const actionResults = await executeAgentActions(parsed.next_actions || [], { allowWrite, allowTerminal });
+        const { parsed, raw } = await runSingleAgentStep({ model: data.model, goal, context, options: data.options || {}, provider: data.provider || 'ollama', providerConfig: data.providerConfig || {}, chatWithProvider: (payload) => chatWithProvider({ ollamaBaseUrl: OLLAMA_BASE_URL, ...payload }) });
+        const actionResults = await executeAgentActions(parsed.next_actions || [], { allowWrite, allowTerminal, saveFile: saveFileWithSnapshot, runTerminal: runTerminalCommand });
         trace.push({ step, summary: parsed.summary || '', actions: parsed.next_actions || [], actionResults, raw: String(raw).slice(0, 1200) });
         context = `${context}
 
@@ -594,7 +348,11 @@ ${JSON.stringify(actionResults).slice(0, 2000)}`;
       const session = createAgentSession(data);
       session.goal = goal;
       agentSessions.set(session.id, session);
-      await generateAgentStepForSession(session);
+      await generateAgentStepForSession(session, {
+        chatWithProvider: (payload) => chatWithProvider({ ollamaBaseUrl: OLLAMA_BASE_URL, ...payload }),
+        saveFile: saveFileWithSnapshot,
+        runTerminal: runTerminalCommand
+      });
       return sendJson(res, 200, { session: compactSession(session) });
     }
 
@@ -603,7 +361,11 @@ ${JSON.stringify(actionResults).slice(0, 2000)}`;
       const session = getSessionOrThrow(data.sessionId);
       if (session.status === 'waiting_approval') return sendJson(res, 400, { error: 'pending actions require approval first' });
       if (session.status === 'completed' || session.status === 'stopped') return sendJson(res, 200, { session: compactSession(session) });
-      await generateAgentStepForSession(session);
+      await generateAgentStepForSession(session, {
+        chatWithProvider: (payload) => chatWithProvider({ ollamaBaseUrl: OLLAMA_BASE_URL, ...payload }),
+        saveFile: saveFileWithSnapshot,
+        runTerminal: runTerminalCommand
+      });
       return sendJson(res, 200, { session: compactSession(session) });
     }
 
@@ -615,7 +377,9 @@ ${JSON.stringify(actionResults).slice(0, 2000)}`;
       const selected = selectedIndexes.length ? selectedIndexes.map((i) => session.pendingActions[i]).filter(Boolean) : session.pendingActions;
       const actionResults = await executeAgentActions(selected, {
         allowWrite: session.allowWrite,
-        allowTerminal: session.allowTerminal
+        allowTerminal: session.allowTerminal,
+        saveFile: saveFileWithSnapshot,
+        runTerminal: runTerminalCommand
       });
       const currentTrace = session.trace[session.trace.length - 1];
       if (currentTrace) currentTrace.actionResults = actionResults;
@@ -675,6 +439,7 @@ ${JSON.stringify(actionResults).slice(0, 2000)}`;
       const code = String(data.code || '').slice(0, 8000);
       const cursorContext = String(data.cursorContext || '').slice(0, 1500);
       const response = await chatWithProvider({
+        ollamaBaseUrl: OLLAMA_BASE_URL,
         model: data.model,
         provider: data.provider || 'ollama',
         providerConfig: data.providerConfig || {},
@@ -706,6 +471,7 @@ ${cursorContext}
       const stderr = String(data.stderr || '').slice(0, 12000);
       const command = String(data.command || '');
       const response = await chatWithProvider({
+        ollamaBaseUrl: OLLAMA_BASE_URL,
         model: data.model,
         provider: data.provider || 'ollama',
         providerConfig: data.providerConfig || {},
@@ -737,13 +503,13 @@ ${stderr}`
     }
 
     if (req.method === 'GET' && req.url === '/api/models') {
-      const models = await listModelsByProvider({ provider: 'ollama', providerConfig: {} });
+      const models = await listModelsByProvider({ provider: 'ollama', providerConfig: {}, ollamaBaseUrl: OLLAMA_BASE_URL });
       return sendJson(res, 200, { models });
     }
 
     if (req.method === 'POST' && req.url === '/api/models') {
       const data = await readJson(req);
-      const models = await listModelsByProvider({ provider: data.provider || 'ollama', providerConfig: data.providerConfig || {} });
+      const models = await listModelsByProvider({ provider: data.provider || 'ollama', providerConfig: data.providerConfig || {}, ollamaBaseUrl: OLLAMA_BASE_URL });
       return sendJson(res, 200, { models });
     }
 
@@ -752,7 +518,7 @@ ${stderr}`
       const data = await readJson(req);
       if (!data.model) return sendJson(res, 400, { error: 'model is required' });
       if (!Array.isArray(data.messages)) return sendJson(res, 400, { error: 'messages array is required' });
-      return sendJson(res, 200, await chatWithProvider({ provider: data.provider || 'ollama', providerConfig: data.providerConfig || {}, model: data.model, messages: data.messages, options: data.options || {} }));
+      return sendJson(res, 200, await chatWithProvider({ provider: data.provider || 'ollama', providerConfig: data.providerConfig || {}, model: data.model, messages: data.messages, options: data.options || {}, ollamaBaseUrl: OLLAMA_BASE_URL }));
     }
 
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) return sendFile(res, path.join(WEB_ROOT, 'index.html'));
