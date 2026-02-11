@@ -28,6 +28,7 @@ const workflowHint = el('workflowHint');
 const searchInput = el('searchInput');
 const searchBtn = el('searchBtn');
 const searchResults = el('searchResults');
+const editorQuickToggles = el('editorQuickToggles');
 const tabsEl = el('tabs');
 const newFileBtn = el('newFile');
 const renameFileBtn = el('renameFile');
@@ -219,6 +220,26 @@ function bindWorkflowMode() {
     };
   });
   applyWorkflowToControls(getWorkflowProfile(settings.workflowMode));
+}
+
+function bindEditorSectionToggles() {
+  if (!editorQuickToggles) return;
+  const state = JSON.parse(localStorage.getItem('editorSectionState') || '{}');
+  editorQuickToggles.querySelectorAll('button[data-editor-section-toggle]').forEach((btn) => {
+    const targetId = btn.dataset.editorSectionToggle;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    const hidden = Boolean(state[targetId]);
+    target.classList.toggle('hidden', hidden);
+    btn.classList.toggle('active', !hidden);
+    btn.onclick = () => {
+      target.classList.toggle('hidden');
+      const isHidden = target.classList.contains('hidden');
+      btn.classList.toggle('active', !isHidden);
+      state[targetId] = isHidden;
+      localStorage.setItem('editorSectionState', JSON.stringify(state));
+    };
+  });
 }
 
 async function api(url, options = {}) {
@@ -1248,6 +1269,10 @@ const commands = [
   { name: '右侧切到 Cue', run: () => setRightPaneTab('cueSection') },
   { name: '右侧切到 Agent', run: () => setRightPaneTab('agentSection') },
   { name: '右侧切到 Chat', run: () => setRightPaneTab('chatSection') },
+  { name: '切换搜索结果面板', run: () => editorQuickToggles?.querySelector('button[data-editor-section-toggle="searchResults"]')?.click() },
+  { name: '切换任务规划面板', run: () => editorQuickToggles?.querySelector('button[data-editor-section-toggle="taskPanel"]')?.click() },
+  { name: '切换补丁预览面板', run: () => editorQuickToggles?.querySelector('button[data-editor-section-toggle="diffPanel"]')?.click() },
+  { name: '切换多文件改动面板', run: () => editorQuickToggles?.querySelector('button[data-editor-section-toggle="batchPanel"]')?.click() },
 ];
 
 function renderPalette(filter = '') {
@@ -1375,6 +1400,7 @@ sidebarSearchBtn.onclick = () => performGlobalSearch(sidebarSearchInput.value).c
 sidebarSearchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sidebarSearchBtn.click(); });
 bindSidebarTabs();
 bindWorkflowMode();
+bindEditorSectionToggles();
 
 editor.addEventListener('input', () => {
   markDirty(true);

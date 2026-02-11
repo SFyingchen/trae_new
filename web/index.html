@@ -72,9 +72,17 @@
       <div id="statusBar" class="status-bar">Ln 1, Col 1 · UTF-8 · Spaces: 2 · txt · Saved</div>
       <div id="inlineSuggest" class="inline-suggest">补全建议：无（Ctrl+Space 触发，Tab 接受）</div>
 
+      <section class="editor-quick-toggles" id="editorQuickToggles">
+        <span>编辑区面板：</span>
+        <button data-editor-section-toggle="searchResults" class="active">搜索结果</button>
+        <button data-editor-section-toggle="taskPanel" class="active">任务规划</button>
+        <button data-editor-section-toggle="diffPanel" class="active">补丁预览</button>
+        <button data-editor-section-toggle="batchPanel" class="active">多文件改动</button>
+      </section>
+
       <div id="searchResults" class="search-results"></div>
 
-      <section class="task-panel panel-collapsible" data-panel="taskPanelBody">
+      <section id="taskPanel" class="task-panel panel-collapsible" data-panel="taskPanelBody">
         <div class="panel-head"><h3>Agent 任务规划（Cline 风格）</h3><button class="panel-toggle" data-target="taskPanelBody">折叠</button></div>
         <div id="taskPanelBody">
           <textarea id="goalInput" placeholder="输入目标，例如：把 API 模块重构为 service + controller 并补测试"></textarea>
@@ -89,12 +97,12 @@
         </div>
       </section>
 
-      <section class="diff-panel panel-collapsible" data-panel="diffPanelBody">
+      <section id="diffPanel" class="diff-panel panel-collapsible" data-panel="diffPanelBody">
         <div class="panel-head"><h3>补丁预览（当前编辑器 vs AI建议）</h3><button class="panel-toggle" data-target="diffPanelBody">折叠</button></div>
         <pre id="diffPanelBody" class="panel-body" >暂无差异</pre>
       </section>
 
-      <section class="batch-panel panel-collapsible" data-panel="batchPanelBody">
+      <section id="batchPanel" class="batch-panel panel-collapsible" data-panel="batchPanelBody">
         <div class="panel-head"><h3>多文件改动（从 AI 回复解析）</h3><button class="panel-toggle" data-target="batchPanelBody">折叠</button></div>
         <div id="batchPanelBody">
           <div class="batch-actions">
