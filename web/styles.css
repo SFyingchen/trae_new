@@ -24,6 +24,15 @@ input, select, button, textarea { border: 1px solid #33486b; background: #12213a
 button { cursor: pointer; transition: .16s ease; }
 button:hover { transform: translateY(-1px); border-color: #3f5d87; background: #172945; }
 button:active { transform: translateY(0); }
+
+.view-btn.active { background: #1f3e74; border-color: #4c76b8; color: #d9e9ff; }
+body.hide-left-pane main { grid-template-columns: 0 0 1fr 6px 440px; }
+body.hide-left-pane #leftSidebar, body.hide-left-pane #leftSplitter { display: none !important; }
+body.hide-right-pane main { grid-template-columns: 280px 6px 1fr 0 0; }
+body.hide-right-pane .chat-pane, body.hide-right-pane #rightSplitter { display: none !important; }
+body.focus-editor main { grid-template-columns: 0 0 1fr 0 0; }
+body.focus-editor #leftSidebar, body.focus-editor #leftSplitter, body.focus-editor .chat-pane, body.focus-editor #rightSplitter { display: none !important; }
+
 #filePath { flex: 1; min-width: 180px; }
 .editor-wrap { display: grid; grid-template-columns: 64px 1fr; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); min-height: 220px; flex: 1; }
 .line-numbers { margin: 0; padding: 8px 6px; text-align: right; color: var(--muted); background: #0c1528; user-select: none; overflow: hidden; font-family: "JetBrains Mono", monospace; line-height: 1.5; }

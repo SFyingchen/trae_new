@@ -43,6 +43,9 @@ const renameFileBtn = el('renameFile');
 const deleteFileBtn = el('deleteFile');
 const loadHistoryBtn = el('loadHistory');
 const openPaletteBtn = el('openPalette');
+const toggleLeftPaneBtn = el('toggleLeftPane');
+const toggleRightPaneBtn = el('toggleRightPane');
+const focusEditorModeBtn = el('focusEditorMode');
 const paletteModal = el('paletteModal');
 const paletteInput = el('paletteInput');
 const paletteList = el('paletteList');
@@ -161,7 +164,8 @@ const settings = {
   editorFontSize: Number(localStorage.getItem('editorFontSize') || 14),
   editorTabSize: Number(localStorage.getItem('editorTabSize') || 2),
   wordWrap: localStorage.getItem('wordWrap') !== 'false',
-  workflowMode: localStorage.getItem('workflowMode') || 'hybrid'
+  workflowMode: localStorage.getItem('workflowMode') || 'hybrid',
+  viewMode: localStorage.getItem('viewMode') || 'default'
 };
 
 function getWorkflowProfile(mode = settings.workflowMode) {
@@ -229,6 +233,7 @@ function bindWorkflowMode() {
     };
   });
   applyWorkflowToControls(getWorkflowProfile(settings.workflowMode));
+  applyViewMode(settings.viewMode);
 }
 
 function bindEditorSectionToggles() {
@@ -276,6 +281,41 @@ function buildSystemPrompt() {
   const preset = promptPreset?.value || 'default';
   const presetHint = promptPresetTemplates[preset] || promptPresetTemplates.default;
   return `${settings.systemPrompt}\n当前工作流模式：${workflow.label}。\n提示词策略：${preset}。\n执行要求：优先给出最小可验证改动；涉及多文件时明确每个文件作用。\n模板要求：${presetHint}\n如果需要改多个文件，可用格式：\`\`\`file:path/to/file\\n完整文件内容\`\`\` 返回。`;
+}
+
+function applyViewMode(mode = settings.viewMode) {
+  const picked = mode || 'default';
+  settings.viewMode = picked;
+  document.body.classList.remove('hide-left-pane', 'hide-right-pane', 'focus-editor');
+  if (picked === 'hideLeft') document.body.classList.add('hide-left-pane');
+  if (picked === 'hideRight') document.body.classList.add('hide-right-pane');
+  if (picked === 'focus') document.body.classList.add('focus-editor');
+  toggleLeftPaneBtn?.classList.toggle('active', picked === 'hideLeft');
+  toggleRightPaneBtn?.classList.toggle('active', picked === 'hideRight');
+  focusEditorModeBtn?.classList.toggle('active', picked === 'focus');
+}
+
+function persistViewMode() {
+  localStorage.setItem('viewMode', settings.viewMode || 'default');
+}
+
+function bindViewControls() {
+  toggleLeftPaneBtn.onclick = () => {
+    const next = settings.viewMode === 'hideLeft' ? 'default' : 'hideLeft';
+    applyViewMode(next);
+    persistViewMode();
+  };
+  toggleRightPaneBtn.onclick = () => {
+    const next = settings.viewMode === 'hideRight' ? 'default' : 'hideRight';
+    applyViewMode(next);
+    persistViewMode();
+  };
+  focusEditorModeBtn.onclick = () => {
+    const next = settings.viewMode === 'focus' ? 'default' : 'focus';
+    applyViewMode(next);
+    persistViewMode();
+  };
+  applyViewMode(settings.viewMode);
 }
 
 async function api(url, options = {}) {
@@ -1402,6 +1442,9 @@ const commands = [
   { name: '上下文: 添加当前文件', run: () => contextManager?.querySelector('button[data-context-quick="currentFile"]')?.click() },
   { name: '上下文: 添加当前选中', run: () => contextManager?.querySelector('button[data-context-quick="selection"]')?.click() },
   { name: '上下文: 清空固定上下文', run: () => clearContextItemsBtn?.click() },
+  { name: '视图: 切换左侧栏', run: () => toggleLeftPaneBtn?.click() },
+  { name: '视图: 切换右侧AI区', run: () => toggleRightPaneBtn?.click() },
+  { name: '视图: 专注编辑模式', run: () => focusEditorModeBtn?.click() },
 ];
 
 function renderPalette(filter = '') {
@@ -1439,6 +1482,7 @@ function persistSettings() {
   localStorage.setItem('editorTabSize', String(settings.editorTabSize));
   localStorage.setItem('wordWrap', String(settings.wordWrap));
   localStorage.setItem('workflowMode', settings.workflowMode || 'hybrid');
+  localStorage.setItem('viewMode', settings.viewMode || 'default');
   temperatureInput.value = String(settings.temperature);
   systemPromptInput.value = settings.systemPrompt;
   providerSelect.value = settings.provider;
@@ -1455,6 +1499,7 @@ function persistSettings() {
   wordWrap.checked = Boolean(settings.wordWrap);
   applyEditorPreferences();
   applyWorkflowToControls(getWorkflowProfile(settings.workflowMode));
+  applyViewMode(settings.viewMode);
 }
 openSettingsBtn.onclick = () => {
   settingsModal.classList.remove('hidden');
@@ -1555,6 +1600,7 @@ bindSidebarTabs();
 bindWorkflowMode();
 bindEditorSectionToggles();
 bindContextManager();
+bindViewControls();
 
 editor.addEventListener('input', () => {
   markDirty(true);
