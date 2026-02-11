@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trae Local AI Editor</title>
+  <link rel="stylesheet" href="/web/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Trae Local AI Editor（本地增强版）</h1>
+    <div class="toolbar">
+      <label>提供商 <select id="providerSelect"></select></label>
+      <label>模型 <select id="modelSelect"></select></label>
+      <input id="providerBaseUrl" placeholder="Provider Base URL" style="min-width:220px" />
+      <input id="providerApiKey" placeholder="API Key(可选)" type="password" style="min-width:200px" />
+      <button id="refreshModels">刷新模型</button>
+      <label class="solo-toggle"><input type="checkbox" id="soloModeToggle" /> Solo 模式</label>
+      <input id="soloMaxSteps" type="number" min="1" max="8" value="3" style="width:74px" title="Solo自动步数" />
+      <button id="openPalette">命令面板</button>
+      <button id="toggleTerminal">终端</button>
+      <button id="openSettings">设置</button>
+      <button id="openGit">Git</button>
+      <button id="newFile">新建</button>
+      <button id="renameFile">重命名</button>
+      <button id="deleteFile">删除</button>
+      <button id="saveFile">保存</button>
+    </div>
+  </header>
+
+  <main id="layoutMain">
+    <aside id="fileTree"></aside>
+    <div id="leftSplitter" class="splitter vertical"></div>
+
+    <section class="editor-pane">
+      <div class="tabs" id="tabs"></div>
+      <div class="file-meta">
+        <input id="filePath" placeholder="输入或选择文件路径" />
+        <input id="searchInput" placeholder="全局搜索关键字" />
+        <button id="searchBtn">搜索</button>
+        <button id="loadHistory">历史版本</button>
+      </div>
+
+      <section id="findPanel" class="find-panel hidden">
+        <input id="findText" placeholder="查找（Ctrl+F）" />
+        <input id="replaceText" placeholder="替换（Ctrl+H）" />
+        <button id="findNext">下一个</button>
+        <button id="replaceOne">替换</button>
+        <button id="replaceAll">全部替换</button>
+        <button id="closeFind">关闭</button>
+      </section>
+
+      <div class="editor-wrap">
+        <pre id="lineNumbers" class="line-numbers">1</pre>
+        <textarea id="editor" spellcheck="false"></textarea>
+      </div>
+      <div id="statusBar" class="status-bar">Ln 1, Col 1 · UTF-8 · Spaces: 2 · txt · Saved</div>
+      <div id="inlineSuggest" class="inline-suggest">补全建议：无（Ctrl+Space 触发，Tab 接受）</div>
+
+      <div id="searchResults" class="search-results"></div>
+
+      <section class="task-panel panel-collapsible" data-panel="taskPanelBody">
+        <div class="panel-head"><h3>Agent 任务规划（Cline 风格）</h3><button class="panel-toggle" data-target="taskPanelBody">折叠</button></div>
+        <div id="taskPanelBody">
+          <textarea id="goalInput" placeholder="输入目标，例如：把 API 模块重构为 service + controller 并补测试"></textarea>
+          <div class="task-actions">
+            <button id="planTask">AI生成计划</button>
+            <button id="executeTask">按计划生成代码建议</button>
+            <button id="exportSession">导出会话</button>
+            <input id="importSessionFile" type="file" accept="application/json" hidden />
+            <button id="importSession">导入会话</button>
+          </div>
+          <div id="taskList" class="task-list"></div>
+        </div>
+      </section>
+
+      <section class="diff-panel panel-collapsible" data-panel="diffPanelBody">
+        <div class="panel-head"><h3>补丁预览（当前编辑器 vs AI建议）</h3><button class="panel-toggle" data-target="diffPanelBody">折叠</button></div>
+        <pre id="diffPanelBody" class="panel-body" >暂无差异</pre>
+      </section>
+
+      <section class="batch-panel panel-collapsible" data-panel="batchPanelBody">
+        <div class="panel-head"><h3>多文件改动（从 AI 回复解析）</h3><button class="panel-toggle" data-target="batchPanelBody">折叠</button></div>
+        <div id="batchPanelBody">
+          <div class="batch-actions">
+            <button id="parseMultiFile">解析多文件建议</button>
+            <button id="applyMultiFile">批量应用选中</button>
+          </div>
+          <div id="multiFileList" class="task-list">暂无多文件改动</div>
+        </div>
+      </section>
+
+      <section id="terminalPanel" class="terminal-panel hidden">
+        <div class="terminal-tabs" id="terminalTabs"></div>
+        <div class="terminal-toolbar">
+          <button id="newTerminalTab">新建终端</button>
+          <input id="terminalCwd" value="." />
+          <input id="terminalCommand" placeholder="输入终端命令，例如 npm test" />
+          <button id="runTerminal">运行（需确认）</button>
+          <button id="diagnoseTerminalError">AI 诊断错误</button>
+        </div>
+        <pre id="terminalOutput"></pre>
+      </section>
+    </section>
+
+    <div id="rightSplitter" class="splitter vertical"></div>
+
+    <section class="chat-pane">
+      <div class="chat-header">
+        <label><input type="checkbox" id="ctxTree" checked /> 文件树上下文</label>
+        <label><input type="checkbox" id="ctxSearch" /> 搜索上下文</label>
+      </div>
+      <div class="right-pane-tabs" id="rightPaneTabs">
+        <button data-right-tab="cueSection">Cue</button>
+        <button data-right-tab="agentSection">Agent</button>
+        <button data-right-tab="chatSection" class="active">Chat</button>
+        <button data-right-tab="problemsPanel">Problems</button>
+        <button data-right-tab="gitPanel">Git</button>
+      </div>
+      <div id="soloModeBanner" class="solo-banner hidden">Solo 模式已开启：发送需求后将自动进入 Agent 会话并推进。</div>
+      <section class="cue-panel" id="cueSection">
+        <h3>Trae Cue（快捷意图）</h3>
+        <div class="cue-actions" id="cueTemplates">
+          <button data-cue="explain">解释当前代码</button>
+          <button data-cue="fix">修复当前问题</button>
+          <button data-cue="optimize">优化性能/可读性</button>
+          <button data-cue="tests">为当前文件补测试</button>
+          <button data-cue="refactor">按模块重构当前文件</button>
+        </div>
+        <div class="cue-actions">
+          <input id="cueInput" placeholder="输入自定义 Cue，例如：把这个函数改成纯函数并补类型注释" />
+          <button id="runCue">执行 Cue</button>
+          <button id="suggestCue">AI 生成 Cue 建议</button>
+        </div>
+        <div id="cueSuggestions" class="task-list">暂无 Cue 建议</div>
+      </section>
+
+      <section class="agent-panel" id="agentSection">
+        <h3>AI Agent 助手</h3>
+        <div class="agent-actions">
+          <button id="agentStep">Agent 下一步</button>
+          <button id="agentApply">应用 Agent 编辑动作</button>
+          <button id="agentRun">自动执行 N 步</button>
+          <label><input type="checkbox" id="agentAllowWrite" checked /> 允许写文件</label>
+          <label><input type="checkbox" id="agentAllowTerminal" /> 允许终端</label>
+          <label><input type="checkbox" id="agentRequireApproval" checked /> 执行动作前确认</label>
+          <input id="agentMaxSteps" type="number" min="1" max="12" value="3" style="width:90px" />
+        </div>
+        <div class="agent-actions">
+          <button id="agentSessionStart">开始会话</button>
+          <button id="agentSessionNext">继续下一步</button>
+          <button id="agentSessionAuto">自动推进</button>
+          <button id="agentSessionApprove">批准并执行</button>
+          <button id="agentSessionReject">拒绝本步动作</button>
+          <button id="agentSessionStop">停止会话</button>
+          <input id="agentSessionId" placeholder="session id" style="min-width:220px" />
+          <button id="agentSessionRefresh">刷新会话列表</button>
+        </div>
+        <div id="agentSummary" class="agent-summary">暂无 Agent 结果</div>
+        <div id="agentActions" class="task-list">暂无动作</div>
+        <div id="agentSessions" class="task-list">暂无会话</div>
+        <div id="agentRunTrace" class="task-list">暂无自动执行记录</div>
+      </section>
+      <section id="chatSection" class="chat-section">
+      <div id="messages"></div>
+      <div class="chat-input">
+        <div class="cue-actions mention-bar" id="mentionQuickActions">
+          <button data-mention="@selection">@selection</button>
+          <button data-mention="@tree">@tree</button>
+          <button data-mention="@search">@search</button>
+          <button data-mention="@problems">@problems</button>
+          <button data-mention="@terminal">@terminal</button>
+          <button data-mention="@file:">@file:</button>
+        </div>
+        <textarea id="prompt" placeholder="描述你希望 AI 做的事情；支持 @selection @file:path @tree @search @problems @terminal"></textarea>
+        <div id="mentionPreview" class="task-list">未检测到 @mentions</div>
+        <div class="chat-buttons">
+          <button id="askAI">让 AI 生成建议</button>
+          <button id="applyAI">应用到编辑器</button>
+        </div>
+      </div>
+      </section>
+      <section id="problemsPanel" class="git-panel">
+        <h3>Problems</h3>
+        <button id="clearProblems">清空</button>
+        <div id="problemsList" class="problems-list">暂无问题</div>
+      </section>
+      <section id="gitPanel" class="git-panel hidden">
+        <h3>Git 状态 / 差异</h3>
+        <button id="refreshGit">刷新 Git 信息</button>
+        <pre id="gitOutput"></pre>
+      </section>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <div id="paletteModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>命令面板</h3>
+      <input id="paletteInput" placeholder="输入命令关键字" />
+      <div id="paletteList" class="palette-list"></div>
+      <button id="closePalette">关闭</button>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>AI 设置</h3>
+      <label>Temperature <input id="temperature" type="number" step="0.1" min="0" max="2" /></label>
+      <label>系统提示词 <textarea id="systemPromptInput"></textarea></label>
+      <button id="saveSettings">保存</button>
+      <button id="closeSettings">关闭</button>
+    </div>
+  </div>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
