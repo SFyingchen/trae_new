@@ -37,6 +37,7 @@ const searchInput = el('searchInput');
 const searchBtn = el('searchBtn');
 const searchResults = el('searchResults');
 const editorQuickToggles = el('editorQuickToggles');
+const layoutPresets = el('layoutPresets');
 const tabsEl = el('tabs');
 const newFileBtn = el('newFile');
 const renameFileBtn = el('renameFile');
@@ -293,10 +294,25 @@ function applyViewMode(mode = settings.viewMode) {
   toggleLeftPaneBtn?.classList.toggle('active', picked === 'hideLeft');
   toggleRightPaneBtn?.classList.toggle('active', picked === 'hideRight');
   focusEditorModeBtn?.classList.toggle('active', picked === 'focus');
+  layoutPresets?.querySelectorAll('button[data-layout-preset]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.layoutPreset === picked);
+  });
 }
 
 function persistViewMode() {
   localStorage.setItem('viewMode', settings.viewMode || 'default');
+}
+
+function bindLayoutPresets() {
+  if (!layoutPresets) return;
+  layoutPresets.querySelectorAll('button[data-layout-preset]').forEach((btn) => {
+    btn.onclick = () => {
+      const mode = btn.dataset.layoutPreset || 'default';
+      applyViewMode(mode);
+      persistViewMode();
+      notify(`已切换布局：${btn.textContent.trim()}`);
+    };
+  });
 }
 
 function bindViewControls() {
@@ -304,16 +320,19 @@ function bindViewControls() {
     const next = settings.viewMode === 'hideLeft' ? 'default' : 'hideLeft';
     applyViewMode(next);
     persistViewMode();
+    notify(next === 'default' ? '已恢复默认布局' : '已隐藏左侧栏');
   };
   toggleRightPaneBtn.onclick = () => {
     const next = settings.viewMode === 'hideRight' ? 'default' : 'hideRight';
     applyViewMode(next);
     persistViewMode();
+    notify(next === 'default' ? '已恢复默认布局' : '已隐藏右侧AI区');
   };
   focusEditorModeBtn.onclick = () => {
     const next = settings.viewMode === 'focus' ? 'default' : 'focus';
     applyViewMode(next);
     persistViewMode();
+    notify(next === 'default' ? '已退出专注编辑' : '已进入专注编辑');
   };
   applyViewMode(settings.viewMode);
 }
@@ -1445,6 +1464,9 @@ const commands = [
   { name: '视图: 切换左侧栏', run: () => toggleLeftPaneBtn?.click() },
   { name: '视图: 切换右侧AI区', run: () => toggleRightPaneBtn?.click() },
   { name: '视图: 专注编辑模式', run: () => focusEditorModeBtn?.click() },
+  { name: '布局: 默认三栏', run: () => layoutPresets?.querySelector('button[data-layout-preset="default"]')?.click() },
+  { name: '布局: 专注代码+AI', run: () => layoutPresets?.querySelector('button[data-layout-preset="hideLeft"]')?.click() },
+  { name: '布局: 专注代码+项目', run: () => layoutPresets?.querySelector('button[data-layout-preset="hideRight"]')?.click() },
 ];
 
 function renderPalette(filter = '') {
@@ -1601,6 +1623,7 @@ bindWorkflowMode();
 bindEditorSectionToggles();
 bindContextManager();
 bindViewControls();
+bindLayoutPresets();
 
 editor.addEventListener('input', () => {
   markDirty(true);
@@ -1655,9 +1678,19 @@ window.addEventListener('keydown', (e) => {
     updateLineNumbers();
     setInlineSuggestion('');
   }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+  if (e.altKey && ['1', '2', '3', '4'].includes(e.key)) {
     e.preventDefault();
-    openPaletteBtn.click();
+    const map = { '1': 'default', '2': 'hideLeft', '3': 'hideRight', '4': 'focus' };
+    const mode = map[e.key] || 'default';
+    applyViewMode(mode);
+    persistViewMode();
+    const picked = layoutPresets?.querySelector(`button[data-layout-preset="${mode}"]`);
+    if (picked) notify(`快捷键切换布局：${picked.textContent.trim()}`);
+  }
+  if (e.key === 'Escape' && settings.viewMode === 'focus') {
+    applyViewMode('default');
+    persistViewMode();
+    notify('已退出专注编辑（Esc）');
   }
 });
 

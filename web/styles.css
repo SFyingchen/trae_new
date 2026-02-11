@@ -20,6 +20,12 @@ aside { border-right: 1px solid var(--line); overflow: auto; padding: 12px; }
 .tabs { padding: 8px; border-bottom: 1px solid var(--line); }
 .file-meta { padding: 10px; border-bottom: 1px solid var(--line); }
 .find-panel { padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel-soft); }
+
+.layout-presets { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: #0d182d; flex-wrap: wrap; }
+.layout-presets span { color: var(--muted); font-size: 12px; }
+.layout-presets button { border-radius: 999px; font-size: 12px; padding: 4px 10px; }
+.layout-presets button.active { background: #1f3e74; border-color: #4c76b8; color: #d9e9ff; }
+
 input, select, button, textarea { border: 1px solid #33486b; background: #12213a; color: var(--text); border-radius: 10px; padding: 8px 10px; }
 button { cursor: pointer; transition: .16s ease; }
 button:hover { transform: translateY(-1px); border-color: #3f5d87; background: #172945; }
