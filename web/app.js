@@ -16,6 +16,10 @@ const promptPreset = el('promptPreset');
 const applyPromptPresetBtn = el('applyPromptPreset');
 const improvePromptBtn = el('improvePrompt');
 const clearChatBtn = el('clearChat');
+const contextManager = el('contextManager');
+const contextItemsEl = el('contextItems');
+const addContextPathBtn = el('addContextPath');
+const clearContextItemsBtn = el('clearContextItems');
 const askAIBtn = el('askAI');
 const applyAIBtn = el('applyAI');
 const messagesEl = el('messages');
@@ -142,6 +146,7 @@ let activeTerminalId = 1;
 let latestAgent = null;
 let currentAgentSession = null;
 const problems = [];
+const pinnedContextTokens = JSON.parse(localStorage.getItem('pinnedContextTokens') || '[]');
 const settings = {
   temperature: Number(localStorage.getItem('temperature') || 0.2),
   systemPrompt: localStorage.getItem('systemPrompt') || '你是一个编程助手，输出清晰说明和完整 updated_code 代码块。',
@@ -561,6 +566,92 @@ function renderMentionPreview(tokens = []) {
   mentionPreview.innerHTML = tokens.map((t) => `<div class="task-item">${escapeHtml(t)}</div>`).join('');
 }
 
+function normalizeContextToken(token = '') {
+  const t = String(token || '').trim();
+  if (!t) return '';
+  return t.startsWith('@') ? t : `@${t}`;
+}
+
+function contextTokenLabel(token = '') {
+  if (token.startsWith('@file:')) return `文件 ${token.slice(6)}`;
+  if (token.startsWith('@folder:')) return `目录 ${token.slice(8)}`;
+  const map = {
+    '@selection': '当前选中',
+    '@tree': '文件树',
+    '@search': '搜索结果',
+    '@problems': '问题列表',
+    '@terminal': '终端输出'
+  };
+  return map[token] || token;
+}
+
+function persistPinnedContexts() {
+  localStorage.setItem('pinnedContextTokens', JSON.stringify(pinnedContextTokens));
+}
+
+function addPinnedContextToken(rawToken = '') {
+  const token = normalizeContextToken(rawToken);
+  if (!token) return;
+  if (pinnedContextTokens.includes(token)) return;
+  pinnedContextTokens.push(token);
+  persistPinnedContexts();
+  renderPinnedContexts();
+}
+
+function removePinnedContextToken(token = '') {
+  const idx = pinnedContextTokens.indexOf(token);
+  if (idx < 0) return;
+  pinnedContextTokens.splice(idx, 1);
+  persistPinnedContexts();
+  renderPinnedContexts();
+}
+
+function renderPinnedContexts() {
+  if (!contextItemsEl) return;
+  if (!pinnedContextTokens.length) {
+    contextItemsEl.innerHTML = '暂无已固定上下文';
+    return;
+  }
+  contextItemsEl.innerHTML = pinnedContextTokens.map((token) => `<div class="context-chip">${escapeHtml(contextTokenLabel(token))}<button data-remove-context="${escapeHtml(token)}" title="移除">✕</button></div>`).join('');
+  contextItemsEl.querySelectorAll('button[data-remove-context]').forEach((btn) => {
+    btn.onclick = () => removePinnedContextToken(btn.dataset.removeContext || '');
+  });
+}
+
+function bindContextManager() {
+  if (!contextManager) return;
+  contextManager.querySelectorAll('button[data-context-quick]').forEach((btn) => {
+    btn.onclick = () => {
+      const quick = btn.dataset.contextQuick;
+      if (quick === 'currentFile') {
+        const path = filePathInput.value.trim();
+        if (!path) return notify('当前没有打开文件');
+        addPinnedContextToken(`@file:${path}`);
+        return;
+      }
+      if (quick === 'selection') return addPinnedContextToken('@selection');
+      if (quick === 'tree') return addPinnedContextToken('@tree');
+      if (quick === 'search') return addPinnedContextToken('@search');
+      if (quick === 'terminal') return addPinnedContextToken('@terminal');
+      if (quick === 'problems') return addPinnedContextToken('@problems');
+    };
+  });
+  addContextPathBtn.onclick = () => {
+    const raw = prompt('输入上下文路径，文件请写 file:path，目录请写 folder:path');
+    if (!raw) return;
+    const value = raw.trim();
+    if (value.startsWith('file:')) return addPinnedContextToken(`@${value}`);
+    if (value.startsWith('folder:')) return addPinnedContextToken(`@${value}`);
+    notify('格式无效，请使用 file:xxx 或 folder:xxx');
+  };
+  clearContextItemsBtn.onclick = () => {
+    pinnedContextTokens.length = 0;
+    persistPinnedContexts();
+    renderPinnedContexts();
+  };
+  renderPinnedContexts();
+}
+
 function flattenTree(nodes = [], out = []) {
   for (const node of nodes) {
     out.push(node);
@@ -620,10 +711,11 @@ async function resolveMentions(tokens = []) {
 
 async function buildContextWithMentions(userPrompt) {
   const mentions = parseMentions(userPrompt);
-  renderMentionPreview(mentions);
-  const mentionContext = mentions.length ? await resolveMentions(mentions) : '';
+  const mergedMentions = [...new Set([...pinnedContextTokens, ...mentions])];
+  renderMentionPreview(mergedMentions);
+  const mentionContext = mergedMentions.length ? await resolveMentions(mergedMentions) : '';
   const cleanPrompt = String(userPrompt || '').replace(/@(selection|tree|search|problems|terminal|file:[^\s]+|folder:[^\s]+)/g, '').replace(/\s{2,}/g, ' ').trim();
-  return { mentions, mentionContext, cleanPrompt: cleanPrompt || String(userPrompt || '').trim() };
+  return { mentions: mergedMentions, mentionContext, cleanPrompt: cleanPrompt || String(userPrompt || '').trim() };
 }
 
 
@@ -1307,6 +1399,9 @@ const commands = [
   { name: '提示词: 套用模板', run: () => applyPromptPresetBtn?.click() },
   { name: '提示词: 智能优化', run: () => improvePromptBtn?.click() },
   { name: '聊天: 清空记录', run: () => clearChatBtn?.click() },
+  { name: '上下文: 添加当前文件', run: () => contextManager?.querySelector('button[data-context-quick="currentFile"]')?.click() },
+  { name: '上下文: 添加当前选中', run: () => contextManager?.querySelector('button[data-context-quick="selection"]')?.click() },
+  { name: '上下文: 清空固定上下文', run: () => clearContextItemsBtn?.click() },
 ];
 
 function renderPalette(filter = '') {
@@ -1459,6 +1554,7 @@ sidebarSearchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') s
 bindSidebarTabs();
 bindWorkflowMode();
 bindEditorSectionToggles();
+bindContextManager();
 
 editor.addEventListener('input', () => {
   markDirty(true);

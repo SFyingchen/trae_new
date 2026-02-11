@@ -202,6 +202,20 @@
           <button data-mention="@terminal">@terminal</button>
           <button data-mention="@file:">@file:</button>
         </div>
+        <section class="context-manager" id="contextManager">
+          <div class="context-quick-actions">
+            <span>上下文：</span>
+            <button data-context-quick="currentFile">当前文件</button>
+            <button data-context-quick="selection">当前选中</button>
+            <button data-context-quick="tree">文件树</button>
+            <button data-context-quick="search">搜索结果</button>
+            <button data-context-quick="terminal">终端输出</button>
+            <button data-context-quick="problems">问题列表</button>
+            <button id="addContextPath">添加文件/目录</button>
+            <button id="clearContextItems">清空上下文</button>
+          </div>
+          <div id="contextItems" class="context-items">暂无已固定上下文</div>
+        </section>
         <div class="prompt-tools" id="promptTools">
           <select id="promptPreset">
             <option value="default">提示词模板：通用编码</option>
