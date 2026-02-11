@@ -93,3 +93,12 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .solo-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid #365079; border-radius: 999px; background: #10203a; font-size: 12px; }
 .solo-banner { margin: 8px 10px; padding: 8px 10px; border: 1px solid #3e5c88; border-radius: 8px; background: #122948; color: #cfe5ff; font-size: 12px; }
+
+.settings-layout { display: grid; grid-template-columns: 160px 1fr; gap: 12px; }
+.settings-sidebar { display: flex; flex-direction: column; gap: 6px; border-right: 1px solid var(--line); padding-right: 10px; }
+.settings-sidebar button.active { background: #1f3e74; border-color: #4c76b8; }
+.settings-main { display: flex; flex-direction: column; gap: 10px; }
+.settings-section { display: flex; flex-direction: column; gap: 8px; }
+.settings-actions { display: flex; gap: 8px; }
+body.ui-compact .task-item, body.ui-compact .result-item { padding: 6px 8px; }
+body.ui-compact button, body.ui-compact input, body.ui-compact select, body.ui-compact textarea { padding: 6px 8px; }

@@ -36,6 +36,13 @@ const openSettingsBtn = el('openSettings');
 const settingsModal = el('settingsModal');
 const closeSettingsBtn = el('closeSettings');
 const saveSettingsBtn = el('saveSettings');
+const settingsTabs = el('settingsTabs');
+const uiDensity = el('uiDensity');
+const autoSave = el('autoSave');
+const showLineNumbers = el('showLineNumbers');
+const editorFontSize = el('editorFontSize');
+const editorTabSize = el('editorTabSize');
+const wordWrap = el('wordWrap');
 const temperatureInput = el('temperature');
 const systemPromptInput = el('systemPromptInput');
 const toggleTerminalBtn = el('toggleTerminal');
@@ -131,7 +138,13 @@ const settings = {
   providerBaseUrl: localStorage.getItem('providerBaseUrl') || '',
   providerApiKey: localStorage.getItem('providerApiKey') || '',
   soloMode: localStorage.getItem('soloMode') === 'true',
-  soloMaxSteps: Number(localStorage.getItem('soloMaxSteps') || 3)
+  soloMaxSteps: Number(localStorage.getItem('soloMaxSteps') || 3),
+  uiDensity: localStorage.getItem('uiDensity') || 'comfortable',
+  autoSave: localStorage.getItem('autoSave') === 'true',
+  showLineNumbers: localStorage.getItem('showLineNumbers') !== 'false',
+  editorFontSize: Number(localStorage.getItem('editorFontSize') || 14),
+  editorTabSize: Number(localStorage.getItem('editorTabSize') || 2),
+  wordWrap: localStorage.getItem('wordWrap') !== 'false'
 };
 
 async function api(url, options = {}) {
@@ -220,6 +233,14 @@ function updateStatusBar() {
 function markDirty(v = true) {
   dirty = v;
   updateStatusBar();
+}
+
+function applyEditorPreferences() {
+  editor.style.fontSize = `${settings.editorFontSize || 14}px`;
+  editor.style.tabSize = String(settings.editorTabSize || 2);
+  editor.style.whiteSpace = settings.wordWrap ? 'pre-wrap' : 'pre';
+  lineNumbers.classList.toggle('hidden', !settings.showLineNumbers);
+  document.body.classList.toggle('ui-compact', settings.uiDensity === 'compact');
 }
 
 function activeTerminal() {
@@ -1118,6 +1139,7 @@ const commands = [
   { name: 'Cue: 修复当前问题', run: () => runCue(cuePromptTemplates.fix) },
   { name: '打开设置', run: () => openSettingsBtn.click() },
   { name: '切换 Solo 模式', run: () => { soloModeToggle.click(); } },
+  { name: '切换紧凑布局', run: () => { settings.uiDensity = settings.uiDensity === 'compact' ? 'comfortable' : 'compact'; persistSettings(); } },
   { name: '右侧切到 Cue', run: () => setRightPaneTab('cueSection') },
   { name: '右侧切到 Agent', run: () => setRightPaneTab('agentSection') },
   { name: '右侧切到 Chat', run: () => setRightPaneTab('chatSection') },
@@ -1151,6 +1173,12 @@ function persistSettings() {
   localStorage.setItem('providerApiKey', settings.providerApiKey);
   localStorage.setItem('soloMode', String(settings.soloMode));
   localStorage.setItem('soloMaxSteps', String(settings.soloMaxSteps));
+  localStorage.setItem('uiDensity', settings.uiDensity);
+  localStorage.setItem('autoSave', String(settings.autoSave));
+  localStorage.setItem('showLineNumbers', String(settings.showLineNumbers));
+  localStorage.setItem('editorFontSize', String(settings.editorFontSize));
+  localStorage.setItem('editorTabSize', String(settings.editorTabSize));
+  localStorage.setItem('wordWrap', String(settings.wordWrap));
   temperatureInput.value = String(settings.temperature);
   systemPromptInput.value = settings.systemPrompt;
   providerSelect.value = settings.provider;
@@ -1159,12 +1187,26 @@ function persistSettings() {
   soloModeToggle.checked = Boolean(settings.soloMode);
   soloMaxSteps.value = String(settings.soloMaxSteps || 3);
   soloModeBanner.classList.toggle('hidden', !settings.soloMode);
+  uiDensity.value = settings.uiDensity || 'comfortable';
+  autoSave.checked = Boolean(settings.autoSave);
+  showLineNumbers.checked = Boolean(settings.showLineNumbers);
+  editorFontSize.value = String(settings.editorFontSize || 14);
+  editorTabSize.value = String(settings.editorTabSize || 2);
+  wordWrap.checked = Boolean(settings.wordWrap);
+  applyEditorPreferences();
 }
 openSettingsBtn.onclick = () => {
   settingsModal.classList.remove('hidden');
   persistSettings();
 };
 closeSettingsBtn.onclick = () => settingsModal.classList.add('hidden');
+settingsTabs.querySelectorAll('button[data-settings-tab]').forEach((btn) => {
+  btn.onclick = () => {
+    const id = btn.dataset.settingsTab;
+    document.querySelectorAll('.settings-section').forEach((sec) => sec.classList.toggle('hidden', sec.id !== id));
+    settingsTabs.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === btn));
+  };
+});
 providerSelect.onchange = () => { settings.provider = providerSelect.value; persistSettings(); loadModels().catch((e) => notify(`加载模型失败: ${e.message}`)); };
 soloModeToggle.onchange = () => { settings.soloMode = soloModeToggle.checked; persistSettings(); };
 soloMaxSteps.onchange = () => { settings.soloMaxSteps = Math.min(8, Math.max(1, Number(soloMaxSteps.value || 3))); persistSettings(); };
@@ -1174,6 +1216,12 @@ saveSettingsBtn.onclick = () => {
   settings.provider = providerSelect.value || settings.provider;
   settings.providerBaseUrl = providerBaseUrl.value.trim();
   settings.providerApiKey = providerApiKey.value.trim();
+  settings.uiDensity = uiDensity.value || 'comfortable';
+  settings.autoSave = Boolean(autoSave.checked);
+  settings.showLineNumbers = Boolean(showLineNumbers.checked);
+  settings.editorFontSize = Math.min(24, Math.max(12, Number(editorFontSize.value || 14)));
+  settings.editorTabSize = Math.min(8, Math.max(2, Number(editorTabSize.value || 2)));
+  settings.wordWrap = Boolean(wordWrap.checked);
   persistSettings();
   settingsModal.classList.add('hidden');
 };
@@ -1220,6 +1268,15 @@ promptInput.addEventListener('input', () => renderMentionPreview(parseMentions(p
 editor.addEventListener('input', () => {
   markDirty(true);
   updateLineNumbers();
+  if (settings.autoSave) {
+    clearTimeout(editor._autosaveTimer);
+    editor._autosaveTimer = setTimeout(() => {
+      if (!dirty) return;
+      if (!filePathInput.value.trim()) return;
+      saveFileBtn.click();
+      notify('自动保存完成');
+    }, 1200);
+  }
 });
 editor.addEventListener('click', updateStatusBar);
 editor.addEventListener('keyup', updateStatusBar);
@@ -1320,6 +1377,12 @@ refreshModelsBtn.onclick = () => {
   settings.provider = providerSelect.value || settings.provider;
   settings.providerBaseUrl = providerBaseUrl.value.trim();
   settings.providerApiKey = providerApiKey.value.trim();
+  settings.uiDensity = uiDensity.value || 'comfortable';
+  settings.autoSave = Boolean(autoSave.checked);
+  settings.showLineNumbers = Boolean(showLineNumbers.checked);
+  settings.editorFontSize = Math.min(24, Math.max(12, Number(editorFontSize.value || 14)));
+  settings.editorTabSize = Math.min(8, Math.max(2, Number(editorTabSize.value || 2)));
+  settings.wordWrap = Boolean(wordWrap.checked);
   persistSettings();
   loadModels().catch((e) => notify(`加载模型失败: ${e.message}`));
 };

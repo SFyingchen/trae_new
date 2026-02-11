@@ -205,12 +205,43 @@
   </div>
 
   <div id="settingsModal" class="modal hidden">
-    <div class="modal-content">
-      <h3>AI 设置</h3>
-      <label>Temperature <input id="temperature" type="number" step="0.1" min="0" max="2" /></label>
-      <label>系统提示词 <textarea id="systemPromptInput"></textarea></label>
-      <button id="saveSettings">保存</button>
-      <button id="closeSettings">关闭</button>
+    <div class="modal-content settings-layout">
+      <div class="settings-sidebar" id="settingsTabs">
+        <button data-settings-tab="generalSettings" class="active">通用</button>
+        <button data-settings-tab="editorSettings">编辑器</button>
+        <button data-settings-tab="aiSettings">AI</button>
+      </div>
+      <div class="settings-main">
+        <section id="generalSettings" class="settings-section">
+          <h3>通用设置</h3>
+          <label>UI 密度
+            <select id="uiDensity">
+              <option value="comfortable">舒适</option>
+              <option value="compact">紧凑</option>
+            </select>
+          </label>
+          <label><input id="autoSave" type="checkbox" /> 自动保存（编辑后延迟 1.2s）</label>
+          <label><input id="showLineNumbers" type="checkbox" checked /> 显示行号</label>
+        </section>
+
+        <section id="editorSettings" class="settings-section hidden">
+          <h3>编辑器设置</h3>
+          <label>字体大小 <input id="editorFontSize" type="number" min="12" max="24" step="1" /></label>
+          <label>缩进空格数 <input id="editorTabSize" type="number" min="2" max="8" step="1" /></label>
+          <label><input id="wordWrap" type="checkbox" checked /> 自动换行</label>
+        </section>
+
+        <section id="aiSettings" class="settings-section hidden">
+          <h3>AI 设置</h3>
+          <label>Temperature <input id="temperature" type="number" step="0.1" min="0" max="2" /></label>
+          <label>系统提示词 <textarea id="systemPromptInput"></textarea></label>
+        </section>
+
+        <div class="settings-actions">
+          <button id="saveSettings">保存</button>
+          <button id="closeSettings">关闭</button>
+        </div>
+      </div>
     </div>
   </div>
 
