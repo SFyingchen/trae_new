@@ -29,7 +29,22 @@
   </header>
 
   <main id="layoutMain">
-    <aside id="fileTree"></aside>
+    <aside id="leftSidebar">
+      <div class="sidebar-tabs" id="leftSidebarTabs">
+        <button data-side-tab="explorerPane" class="active">资源管理器</button>
+        <button data-side-tab="searchPane">全局搜索</button>
+      </div>
+      <section id="explorerPane" class="side-pane">
+        <div id="fileTree"></div>
+      </section>
+      <section id="searchPane" class="side-pane hidden">
+        <div class="sidebar-search">
+          <input id="sidebarSearchInput" placeholder="在工作区搜索..." />
+          <button id="sidebarSearchBtn">搜索</button>
+        </div>
+        <div id="sidebarSearchResults" class="search-results"></div>
+      </section>
+    </aside>
     <div id="leftSplitter" class="splitter vertical"></div>
 
     <section class="editor-pane">

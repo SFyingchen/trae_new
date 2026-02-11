@@ -1,5 +1,9 @@
 const el = (id) => document.getElementById(id);
 const fileTree = el('fileTree');
+const leftSidebarTabs = el('leftSidebarTabs');
+const sidebarSearchInput = el('sidebarSearchInput');
+const sidebarSearchBtn = el('sidebarSearchBtn');
+const sidebarSearchResults = el('sidebarSearchResults');
 const editor = el('editor');
 const lineNumbers = el('lineNumbers');
 const statusBar = el('statusBar');
@@ -335,6 +339,44 @@ async function loadTree() {
   latestTree = data.tree;
   fileTree.innerHTML = '';
   renderTree(data.tree, fileTree);
+}
+
+function renderSearchResultList(container, results = []) {
+  container.innerHTML = results.map((r) => `<div class="result-item" data-path="${escapeHtml(r.path)}"><strong>${escapeHtml(r.path)}</strong><div>${escapeHtml(r.snippet)}</div></div>`).join('') || '<div class="result-item">未找到匹配</div>';
+  container.querySelectorAll('.result-item[data-path]').forEach((node) => {
+    node.onclick = async () => {
+      const p = node.getAttribute('data-path');
+      const file = await api(`/api/file?path=${encodeURIComponent(p)}`);
+      setCurrentPath(file.path);
+      editor.value = file.content;
+      markDirty(false);
+      updateLineNumbers();
+      setRightPaneTab('chatSection');
+    };
+  });
+}
+
+async function performGlobalSearch(query) {
+  const q = String(query || '').trim();
+  if (!q) return;
+  const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
+  latestSearch = data.results;
+  renderSearchResultList(searchResults, data.results);
+  renderSearchResultList(sidebarSearchResults, data.results);
+}
+
+function bindSidebarTabs() {
+  leftSidebarTabs.querySelectorAll('button[data-side-tab]').forEach((btn) => {
+    btn.onclick = () => {
+      const target = btn.dataset.sideTab;
+      document.querySelectorAll('.side-pane').forEach((sec) => sec.classList.toggle('hidden', sec.id !== target));
+      leftSidebarTabs.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === btn));
+      localStorage.setItem('leftSidebarTab', target);
+    };
+  });
+  const saved = localStorage.getItem('leftSidebarTab') || 'explorerPane';
+  const picked = leftSidebarTabs.querySelector(`button[data-side-tab="${saved}"]`) || leftSidebarTabs.querySelector('button[data-side-tab]');
+  if (picked) picked.click();
 }
 
 async function loadProviders() {
@@ -889,19 +931,7 @@ loadHistoryBtn.onclick = async () => {
 searchBtn.onclick = async () => {
   const q = searchInput.value.trim();
   if (!q) return;
-  const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
-  latestSearch = data.results;
-  searchResults.innerHTML = data.results.map((r) => `<div class="result-item" data-path="${escapeHtml(r.path)}"><strong>${escapeHtml(r.path)}</strong><div>${escapeHtml(r.snippet)}</div></div>`).join('') || '<div class="result-item">未找到匹配</div>';
-  searchResults.querySelectorAll('.result-item[data-path]').forEach((node) => {
-    node.onclick = async () => {
-      const p = node.getAttribute('data-path');
-      const file = await api(`/api/file?path=${encodeURIComponent(p)}`);
-      setCurrentPath(file.path);
-      editor.value = file.content;
-      markDirty(false);
-      updateLineNumbers();
-    };
-  });
+  await performGlobalSearch(q);
 };
 
 planTaskBtn.onclick = async () => {
@@ -1121,6 +1151,8 @@ const commands = [
   { name: '查找', run: () => openFind(false) },
   { name: '替换', run: () => openFind(true) },
   { name: '全局搜索', run: () => searchBtn.click() },
+  { name: '切换到资源管理器', run: () => leftSidebarTabs.querySelector('button[data-side-tab="explorerPane"]')?.click() },
+  { name: '切换到搜索面板', run: () => leftSidebarTabs.querySelector('button[data-side-tab="searchPane"]')?.click() },
   { name: 'AI生成计划', run: () => planTaskBtn.click() },
   { name: '执行任务计划', run: () => executeTaskBtn.click() },
   { name: 'Agent 下一步', run: () => agentStepBtn.click() },
@@ -1264,6 +1296,9 @@ mentionQuickActions.querySelectorAll('button[data-mention]').forEach((btn) => {
   };
 });
 promptInput.addEventListener('input', () => renderMentionPreview(parseMentions(promptInput.value)));
+sidebarSearchBtn.onclick = () => performGlobalSearch(sidebarSearchInput.value).catch((e) => notify(`搜索失败: ${e.message}`));
+sidebarSearchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sidebarSearchBtn.click(); });
+bindSidebarTabs();
 
 editor.addEventListener('input', () => {
   markDirty(true);
