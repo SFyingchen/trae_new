@@ -202,6 +202,18 @@
           <button data-mention="@terminal">@terminal</button>
           <button data-mention="@file:">@file:</button>
         </div>
+        <div class="prompt-tools" id="promptTools">
+          <select id="promptPreset">
+            <option value="default">提示词模板：通用编码</option>
+            <option value="fix">提示词模板：问题修复</option>
+            <option value="refactor">提示词模板：重构优化</option>
+            <option value="tests">提示词模板：补充测试</option>
+            <option value="perf">提示词模板：性能优化</option>
+          </select>
+          <button id="applyPromptPreset">套用模板</button>
+          <button id="improvePrompt">优化当前提示词</button>
+          <button id="clearChat">清空对话</button>
+        </div>
         <textarea id="prompt" placeholder="描述你希望 AI 做的事情；支持 @selection @file:path @tree @search @problems @terminal"></textarea>
         <div id="mentionPreview" class="task-list">未检测到 @mentions</div>
         <div class="chat-buttons">

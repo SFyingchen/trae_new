@@ -50,6 +50,11 @@ button:active { transform: translateY(0); }
 .chat-input { padding: 12px; border-top: 1px solid var(--line); }
 #prompt { width: 100%; min-height: 120px; margin-bottom: 8px; }
 .chat-buttons { display: flex; gap: 8px; }
+
+.prompt-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.prompt-tools select { min-width: 220px; }
+.prompt-tools button { border-radius: 8px; font-size: 12px; }
+
 .tree-item { margin-left: 12px; }
 .tree-dir { cursor: pointer; font-weight: 600; padding: 2px 0; }
 .tree-children.collapsed { display: none; }

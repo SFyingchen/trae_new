@@ -12,6 +12,10 @@ const saveFileBtn = el('saveFile');
 const promptInput = el('prompt');
 const mentionQuickActions = el('mentionQuickActions');
 const mentionPreview = el('mentionPreview');
+const promptPreset = el('promptPreset');
+const applyPromptPresetBtn = el('applyPromptPreset');
+const improvePromptBtn = el('improvePrompt');
+const clearChatBtn = el('clearChat');
 const askAIBtn = el('askAI');
 const applyAIBtn = el('applyAI');
 const messagesEl = el('messages');
@@ -240,6 +244,33 @@ function bindEditorSectionToggles() {
       localStorage.setItem('editorSectionState', JSON.stringify(state));
     };
   });
+}
+
+const promptPresetTemplates = {
+  default: '目标：实现需求并保证可运行。\n约束：最小改动优先，兼容现有结构。\n输出：先说明方案，再给 updated_code。',
+  fix: '目标：定位并修复当前问题。\n请先说明根因，再给修复方案和 updated_code；同时列出回归风险。',
+  refactor: '目标：在不改变行为前提下重构当前代码。\n请先说明重构边界，再给 updated_code，并解释可维护性提升点。',
+  tests: '目标：为当前逻辑补充测试。\n请覆盖正常/边界/异常路径，并说明每个测试意图。',
+  perf: '目标：优化性能并保证可读性。\n请对比优化前后复杂度或关键路径开销，再给 updated_code。'
+};
+
+function buildPromptQualityHint(text = '') {
+  const base = String(text || '').trim();
+  if (!base) return '';
+  const lines = [];
+  if (!/目标|goal/i.test(base)) lines.push('目标：');
+  if (!/约束|限制|constraint/i.test(base)) lines.push('约束：');
+  if (!/验收|标准|acceptance/i.test(base)) lines.push('验收标准：');
+  if (!/输出|返回|format/i.test(base)) lines.push('输出格式：');
+  if (!lines.length) return base;
+  return `${base}\n\n请补全以下信息后执行：\n${lines.map((x) => `- ${x}`).join('\n')}`;
+}
+
+function buildSystemPrompt() {
+  const workflow = getWorkflowProfile(settings.workflowMode);
+  const preset = promptPreset?.value || 'default';
+  const presetHint = promptPresetTemplates[preset] || promptPresetTemplates.default;
+  return `${settings.systemPrompt}\n当前工作流模式：${workflow.label}。\n提示词策略：${preset}。\n执行要求：优先给出最小可验证改动；涉及多文件时明确每个文件作用。\n模板要求：${presetHint}\n如果需要改多个文件，可用格式：\`\`\`file:path/to/file\\n完整文件内容\`\`\` 返回。`;
 }
 
 async function api(url, options = {}) {
@@ -1158,7 +1189,7 @@ askAIBtn.onclick = async () => {
         model,
         options: { temperature: Number(workflow.temp ?? settings.temperature ?? 0.2) },
         messages: [
-          { role: 'system', content: `${settings.systemPrompt}\n当前工作流模式：${getWorkflowProfile(settings.workflowMode).label}。请按该风格输出。\n如果需要改多个文件，可用格式：\`\`\`file:path/to/file\\n完整文件内容\`\`\` 返回。` },
+          { role: 'system', content: buildSystemPrompt() },
           { role: 'user', content: `文件路径: ${currentPath}\n\n当前代码:\n${currentCode}\n\n需求:\n${cleanPrompt}\n\n上下文:\n${context}` }
         ]
       })
@@ -1273,6 +1304,9 @@ const commands = [
   { name: '切换任务规划面板', run: () => editorQuickToggles?.querySelector('button[data-editor-section-toggle="taskPanel"]')?.click() },
   { name: '切换补丁预览面板', run: () => editorQuickToggles?.querySelector('button[data-editor-section-toggle="diffPanel"]')?.click() },
   { name: '切换多文件改动面板', run: () => editorQuickToggles?.querySelector('button[data-editor-section-toggle="batchPanel"]')?.click() },
+  { name: '提示词: 套用模板', run: () => applyPromptPresetBtn?.click() },
+  { name: '提示词: 智能优化', run: () => improvePromptBtn?.click() },
+  { name: '聊天: 清空记录', run: () => clearChatBtn?.click() },
 ];
 
 function renderPalette(filter = '') {
@@ -1396,6 +1430,30 @@ mentionQuickActions.querySelectorAll('button[data-mention]').forEach((btn) => {
   };
 });
 promptInput.addEventListener('input', () => renderMentionPreview(parseMentions(promptInput.value)));
+applyPromptPresetBtn.onclick = () => {
+  const preset = promptPreset.value || 'default';
+  const base = promptPresetTemplates[preset] || promptPresetTemplates.default;
+  promptInput.value = [promptInput.value.trim(), base].filter(Boolean).join('\n\n');
+  promptInput.focus();
+  renderMentionPreview(parseMentions(promptInput.value));
+};
+improvePromptBtn.onclick = () => {
+  const improved = buildPromptQualityHint(promptInput.value);
+  if (!improved) return notify('请先输入提示词');
+  promptInput.value = improved;
+  promptInput.focus();
+  renderMentionPreview(parseMentions(promptInput.value));
+  notify('已优化提示词结构（目标/约束/验收/输出）');
+};
+clearChatBtn.onclick = () => {
+  if (!confirm('确认清空当前聊天记录？')) return;
+  messagesEl.innerHTML = '';
+  latestAssistantRaw = '';
+  latestSuggestedCode = '';
+  diffPreview.textContent = '暂无差异';
+  notify('聊天记录已清空');
+};
+
 sidebarSearchBtn.onclick = () => performGlobalSearch(sidebarSearchInput.value).catch((e) => notify(`搜索失败: ${e.message}`));
 sidebarSearchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sidebarSearchBtn.click(); });
 bindSidebarTabs();
