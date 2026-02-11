@@ -86,6 +86,19 @@ body.resizing { cursor: col-resize; user-select: none; }
 .mention-bar button { font-size: 12px; padding: 5px 9px; border-radius: 999px; }
 #mentionPreview { max-height: 120px; overflow: auto; border-top: 1px solid var(--line); margin: 8px 0; background: #0e1a30; }
 
+
+#leftSidebar { display: flex; flex-direction: column; gap: 10px; }
+.sidebar-tabs { display: flex; gap: 6px; }
+.sidebar-tabs button { flex: 1; font-size: 12px; padding: 6px 8px; border-radius: 8px; }
+.sidebar-tabs button.active { background: #1f3e74; border-color: #4c76b8; color: #d9e9ff; }
+.side-pane { min-height: 0; }
+.sidebar-search { display: flex; gap: 8px; margin-bottom: 8px; }
+.sidebar-search input { flex: 1; min-width: 0; }
+.workflow-bar { margin: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #0f1a30; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.workflow-bar button { border-radius: 999px; padding: 5px 10px; font-size: 12px; }
+.workflow-bar button.active { background: #1f3e74; border-color: #4c76b8; color: #d9e9ff; }
+.workflow-hint { width: 100%; color: #a6cbff; font-size: 12px; }
+
 .right-pane-tabs { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: #0f1a30; }
 .right-pane-tabs button { padding: 6px 10px; border-radius: 8px; font-size: 12px; }
 .right-pane-tabs button.active { background: #1f3e74; border-color: #4c76b8; color: #d9e9ff; }

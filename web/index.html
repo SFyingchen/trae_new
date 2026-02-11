@@ -125,6 +125,13 @@
         <label><input type="checkbox" id="ctxTree" checked /> 文件树上下文</label>
         <label><input type="checkbox" id="ctxSearch" /> 搜索上下文</label>
       </div>
+      <section class="workflow-bar" id="workflowBar">
+        <strong>工作流模式：</strong>
+        <button data-workflow-mode="hybrid" class="active">Hybrid（推荐）</button>
+        <button data-workflow-mode="trae">Trae 快速探索</button>
+        <button data-workflow-mode="cline">Cline 稳健执行</button>
+        <div id="workflowHint" class="workflow-hint">平衡探索速度与执行确定性，适合大多数任务。</div>
+      </section>
       <div class="right-pane-tabs" id="rightPaneTabs">
         <button data-right-tab="cueSection">Cue</button>
         <button data-right-tab="agentSection">Agent</button>

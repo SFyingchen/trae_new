@@ -23,6 +23,8 @@ const refreshModelsBtn = el('refreshModels');
 const soloModeToggle = el('soloModeToggle');
 const soloMaxSteps = el('soloMaxSteps');
 const soloModeBanner = el('soloModeBanner');
+const workflowBar = el('workflowBar');
+const workflowHint = el('workflowHint');
 const searchInput = el('searchInput');
 const searchBtn = el('searchBtn');
 const searchResults = el('searchResults');
@@ -148,8 +150,76 @@ const settings = {
   showLineNumbers: localStorage.getItem('showLineNumbers') !== 'false',
   editorFontSize: Number(localStorage.getItem('editorFontSize') || 14),
   editorTabSize: Number(localStorage.getItem('editorTabSize') || 2),
-  wordWrap: localStorage.getItem('wordWrap') !== 'false'
+  wordWrap: localStorage.getItem('wordWrap') !== 'false',
+  workflowMode: localStorage.getItem('workflowMode') || 'hybrid'
 };
+
+function getWorkflowProfile(mode = settings.workflowMode) {
+  const map = {
+    trae: {
+      label: 'Trae 快速探索',
+      hint: '偏向快速探索与建议扩散，适合头脑风暴和需求不稳定阶段。',
+      temp: 0.55,
+      solo: false,
+      maxSteps: 2,
+      requireApproval: false,
+      allowTerminal: false
+    },
+    cline: {
+      label: 'Cline 稳健执行',
+      hint: '偏向计划化执行与确认闭环，适合明确目标的重构/修复。',
+      temp: 0.18,
+      solo: true,
+      maxSteps: 4,
+      requireApproval: true,
+      allowTerminal: false
+    },
+    hybrid: {
+      label: 'Hybrid（推荐）',
+      hint: '平衡探索速度与执行确定性，适合大多数任务。',
+      temp: 0.28,
+      solo: false,
+      maxSteps: 3,
+      requireApproval: true,
+      allowTerminal: false
+    }
+  };
+  return map[mode] || map.hybrid;
+}
+
+function applyWorkflowToControls(profile = getWorkflowProfile()) {
+  if (!profile) return;
+  settings.temperature = Number(profile.temp);
+  settings.soloMode = Boolean(profile.solo);
+  settings.soloMaxSteps = Number(profile.maxSteps || 3);
+  settings.workflowMode = settings.workflowMode || 'hybrid';
+  soloModeToggle.checked = settings.soloMode;
+  soloMaxSteps.value = String(settings.soloMaxSteps);
+  agentRequireApproval.checked = Boolean(profile.requireApproval);
+  agentAllowTerminal.checked = Boolean(profile.allowTerminal);
+  agentMaxSteps.value = String(profile.maxSteps || 3);
+  temperatureInput.value = String(settings.temperature);
+  soloModeBanner.classList.toggle('hidden', !settings.soloMode);
+  if (workflowHint) workflowHint.textContent = profile.hint;
+  if (workflowBar) {
+    workflowBar.querySelectorAll('button[data-workflow-mode]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.workflowMode === settings.workflowMode);
+    });
+  }
+}
+
+function bindWorkflowMode() {
+  if (!workflowBar) return;
+  workflowBar.querySelectorAll('button[data-workflow-mode]').forEach((btn) => {
+    btn.onclick = () => {
+      settings.workflowMode = btn.dataset.workflowMode || 'hybrid';
+      applyWorkflowToControls(getWorkflowProfile(settings.workflowMode));
+      persistSettings();
+      notify(`已切换工作流模式：${getWorkflowProfile(settings.workflowMode).label}`);
+    };
+  });
+  applyWorkflowToControls(getWorkflowProfile(settings.workflowMode));
+}
 
 async function api(url, options = {}) {
   const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options });
@@ -351,7 +421,6 @@ function renderSearchResultList(container, results = []) {
       editor.value = file.content;
       markDirty(false);
       updateLineNumbers();
-      setRightPaneTab('chatSection');
     };
   });
 }
@@ -1060,14 +1129,15 @@ askAIBtn.onclick = async () => {
       return;
     }
 
+    const workflow = getWorkflowProfile(settings.workflowMode);
     const result = await api('/api/chat', {
       method: 'POST',
       body: JSON.stringify({
         ...currentProviderPayload(),
         model,
-        options: { temperature: Number(settings.temperature || 0.2) },
+        options: { temperature: Number(workflow.temp ?? settings.temperature ?? 0.2) },
         messages: [
-          { role: 'system', content: `${settings.systemPrompt}\n如果需要改多个文件，可用格式：\`\`\`file:path/to/file\\n完整文件内容\`\`\` 返回。` },
+          { role: 'system', content: `${settings.systemPrompt}\n当前工作流模式：${getWorkflowProfile(settings.workflowMode).label}。请按该风格输出。\n如果需要改多个文件，可用格式：\`\`\`file:path/to/file\\n完整文件内容\`\`\` 返回。` },
           { role: 'user', content: `文件路径: ${currentPath}\n\n当前代码:\n${currentCode}\n\n需求:\n${cleanPrompt}\n\n上下文:\n${context}` }
         ]
       })
@@ -1171,6 +1241,9 @@ const commands = [
   { name: 'Cue: 修复当前问题', run: () => runCue(cuePromptTemplates.fix) },
   { name: '打开设置', run: () => openSettingsBtn.click() },
   { name: '切换 Solo 模式', run: () => { soloModeToggle.click(); } },
+  { name: '工作流: Hybrid', run: () => workflowBar?.querySelector('button[data-workflow-mode="hybrid"]')?.click() },
+  { name: '工作流: Trae 快速探索', run: () => workflowBar?.querySelector('button[data-workflow-mode="trae"]')?.click() },
+  { name: '工作流: Cline 稳健执行', run: () => workflowBar?.querySelector('button[data-workflow-mode="cline"]')?.click() },
   { name: '切换紧凑布局', run: () => { settings.uiDensity = settings.uiDensity === 'compact' ? 'comfortable' : 'compact'; persistSettings(); } },
   { name: '右侧切到 Cue', run: () => setRightPaneTab('cueSection') },
   { name: '右侧切到 Agent', run: () => setRightPaneTab('agentSection') },
@@ -1211,6 +1284,7 @@ function persistSettings() {
   localStorage.setItem('editorFontSize', String(settings.editorFontSize));
   localStorage.setItem('editorTabSize', String(settings.editorTabSize));
   localStorage.setItem('wordWrap', String(settings.wordWrap));
+  localStorage.setItem('workflowMode', settings.workflowMode || 'hybrid');
   temperatureInput.value = String(settings.temperature);
   systemPromptInput.value = settings.systemPrompt;
   providerSelect.value = settings.provider;
@@ -1226,6 +1300,7 @@ function persistSettings() {
   editorTabSize.value = String(settings.editorTabSize || 2);
   wordWrap.checked = Boolean(settings.wordWrap);
   applyEditorPreferences();
+  applyWorkflowToControls(getWorkflowProfile(settings.workflowMode));
 }
 openSettingsBtn.onclick = () => {
   settingsModal.classList.remove('hidden');
@@ -1299,6 +1374,7 @@ promptInput.addEventListener('input', () => renderMentionPreview(parseMentions(p
 sidebarSearchBtn.onclick = () => performGlobalSearch(sidebarSearchInput.value).catch((e) => notify(`搜索失败: ${e.message}`));
 sidebarSearchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sidebarSearchBtn.click(); });
 bindSidebarTabs();
+bindWorkflowMode();
 
 editor.addEventListener('input', () => {
   markDirty(true);
