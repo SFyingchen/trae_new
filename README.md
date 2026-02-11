@@ -112,6 +112,8 @@ ollama pull qwen2.5-coder:7b
 - AI 实时补全预测（Ctrl/Cmd+Space 触发，Tab 接受）
 - 终端报错 AI 诊断（基于最新错误输出）
 - Agent 动作流（edit / terminal / ask_user）并可选择性执行
+- Problems 面板（API/终端/Git 错误聚合）
+- 工作台布局持久化（分栏宽度、可折叠面板状态）
 
 > 注意：要做到“和 VSCode 一模一样”还需要完整插件市场、调试器协议、语言服务器生态等大量能力。本项目当前是本地可安装 IDE + AI Agent 的增强实现。
 

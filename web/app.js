@@ -61,6 +61,9 @@ const openGit = el('openGit');
 const gitPanel = el('gitPanel');
 const refreshGit = el('refreshGit');
 const gitOutput = el('gitOutput');
+const problemsPanel = el('problemsPanel');
+const problemsList = el('problemsList');
+const clearProblemsBtn = el('clearProblems');
 const parseMultiFileBtn = el('parseMultiFile');
 const applyMultiFileBtn = el('applyMultiFile');
 const multiFileList = el('multiFileList');
@@ -106,6 +109,7 @@ const terminalSessions = [{ id: 1, title: '终端 1', cwd: '.', output: '' }];
 let activeTerminalId = 1;
 let latestAgent = null;
 let currentAgentSession = null;
+const problems = [];
 const settings = {
   temperature: Number(localStorage.getItem('temperature') || 0.2),
   systemPrompt: localStorage.getItem('systemPrompt') || '你是一个编程助手，输出清晰说明和完整 updated_code 代码块。',
@@ -116,8 +120,17 @@ const settings = {
 
 async function api(url, options = {}) {
   const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  let data = {};
+  try {
+    data = await res.json();
+  } catch {
+    data = {};
+  }
+  if (!res.ok) {
+    const message = data.error || 'Request failed';
+    pushProblem('api', `${url}: ${message}`);
+    throw new Error(message);
+  }
   return data;
 }
 
@@ -142,6 +155,20 @@ function notify(message) {
   notify._t = setTimeout(() => toast.classList.add('hidden'), 2200);
 }
 
+function renderProblems() {
+  if (!problems.length) {
+    problemsList.innerHTML = '暂无问题';
+    return;
+  }
+  problemsList.innerHTML = problems.map((p) => `<div class="problem-item"><strong>[${escapeHtml(p.source)}]</strong> ${escapeHtml(p.message)}<div class="problem-time">${escapeHtml(p.time)}</div></div>`).join('');
+}
+
+function pushProblem(source, message) {
+  problems.unshift({ source, message, time: new Date().toLocaleTimeString() });
+  if (problems.length > 60) problems.length = 60;
+  renderProblems();
+}
+
 function getLanguageByPath(p = '') {
   const ext = (p.split('.').pop() || 'txt').toLowerCase();
   const map = { js: 'JavaScript', ts: 'TypeScript', json: 'JSON', md: 'Markdown', css: 'CSS', html: 'HTML', py: 'Python', java: 'Java', go: 'Go', rs: 'Rust' };
@@ -159,7 +186,7 @@ function updateStatusBar() {
   const line = before.split('\n').length;
   const col = before.length - before.lastIndexOf('\n');
   const lang = getLanguageByPath(filePathInput.value.trim());
-  statusBar.textContent = `Ln ${line}, Col ${col} · UTF-8 · Spaces: 2 · ${lang} · ${dirty ? 'Unsaved' : 'Saved'}`;
+  statusBar.textContent = `Ln ${line}, Col ${col} · UTF-8 · Spaces: 2 · ${lang} · ${providerSelect.value || settings.provider} · ${modelSelect.value || 'no-model'} · ${dirty ? 'Unsaved' : 'Saved'}`;
 }
 
 function markDirty(v = true) {
@@ -562,6 +589,7 @@ async function applyAgentActions() {
       terminalOutput.textContent = r.output || '(no output)';
     } catch (e) {
       terminalOutput.textContent = `Error: ${e.message}`;
+      pushProblem('terminal', e.message);
     }
   }
 
@@ -732,6 +760,7 @@ refreshGit.onclick = async () => {
     gitOutput.textContent = `# status\n${status.output}\n\n# diff\n${diff.output || '(no diff)'}`;
   } catch (e) {
     gitOutput.textContent = e.message;
+    pushProblem('git', e.message);
   }
 };
 
@@ -788,6 +817,7 @@ askAIBtn.onclick = async () => {
     diffPreview.textContent = makeSimpleDiff(editor.value, latestSuggestedCode || editor.value);
   } catch (e) {
     addMessage('assistant', `请求失败：${e.message}`);
+    pushProblem('chat', e.message);
   } finally {
     askAIBtn.disabled = false;
   }
@@ -870,6 +900,7 @@ const commands = [
   { name: '批量应用多文件建议', run: () => applyMultiFileBtn.click() },
   { name: '切换终端', run: () => toggleTerminalBtn.click() },
   { name: '打开Git面板', run: () => openGit.click() },
+  { name: '打开Problems', run: () => problemsPanel.classList.toggle('hidden') },
   { name: '请求AI建议', run: () => askAIBtn.click() },
   { name: '打开设置', run: () => openSettingsBtn.click() },
 ];
@@ -936,6 +967,7 @@ agentSessionApproveBtn.onclick = () => approveAgentSessionStep().catch((e) => no
 agentSessionRejectBtn.onclick = () => rejectAgentSessionStep().catch((e) => notify(`拒绝动作失败: ${e.message}`));
 agentSessionStopBtn.onclick = () => stopAgentSession().catch((e) => notify(`停止会话失败: ${e.message}`));
 agentSessionRefreshBtn.onclick = () => refreshAgentSessions().catch((e) => notify(`刷新会话失败: ${e.message}`));
+clearProblemsBtn.onclick = () => { problems.length = 0; renderProblems(); };
 
 editor.addEventListener('input', () => {
   markDirty(true);
@@ -989,14 +1021,26 @@ window.addEventListener('keydown', (e) => {
 
 
 
+const panelState = JSON.parse(localStorage.getItem('panelState') || '{}');
 document.querySelectorAll('.panel-toggle').forEach((btn) => {
+  const target = document.getElementById(btn.dataset.target);
+  if (!target) return;
+  const hidden = Boolean(panelState[btn.dataset.target]);
+  if (hidden) target.classList.add('hidden');
+  btn.textContent = target.classList.contains('hidden') ? '展开' : '折叠';
   btn.onclick = () => {
-    const target = document.getElementById(btn.dataset.target);
-    if (!target) return;
     target.classList.toggle('hidden');
     btn.textContent = target.classList.contains('hidden') ? '展开' : '折叠';
+    panelState[btn.dataset.target] = target.classList.contains('hidden');
+    localStorage.setItem('panelState', JSON.stringify(panelState));
   };
 });
+
+const savedLayout = JSON.parse(localStorage.getItem('layoutPrefs') || '{}');
+if (savedLayout.left && savedLayout.right) {
+  layoutMain.dataset.right = String(savedLayout.right);
+  layoutMain.style.gridTemplateColumns = `${savedLayout.left}px 6px 1fr 6px ${savedLayout.right}px`;
+}
 
 function bindSplitter(splitterEl) {
   let dragging = false;
@@ -1009,11 +1053,14 @@ function bindSplitter(splitterEl) {
       const left = Math.max(200, Math.min(e.clientX - rect.left, rect.width - 760));
       const right = (layoutMain.dataset.right || '430');
       layoutMain.style.gridTemplateColumns = `${left}px 6px 1fr 6px ${right}px`;
+      localStorage.setItem('layoutPrefs', JSON.stringify({ left, right: Number(right) }));
     } else {
       const right = Math.max(320, Math.min(rect.right - e.clientX, rect.width - 340));
       layoutMain.dataset.right = String(right);
       const left = layoutMain.style.gridTemplateColumns.split(' ')[0] || '280px';
       layoutMain.style.gridTemplateColumns = `${left} 6px 1fr 6px ${right}px`;
+      const leftNum = Number.parseInt(String(left).replace('px', ''), 10) || 280;
+      localStorage.setItem('layoutPrefs', JSON.stringify({ left: leftNum, right }));
     }
   });
 }
@@ -1040,4 +1087,5 @@ refreshAgentSessions().catch((e) => notify(`刷新会话失败: ${e.message}`));
 renderTerminalTabs();
 setInlineSuggestion('');
 updateLineNumbers();
+renderProblems();
 updateStatusBar();

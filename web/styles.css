@@ -74,3 +74,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .status-waiting_approval { color: #ffd699; background: #51370f; }
 .status-completed { color: #aef6c2; background: #1b4a30; }
 .status-stopped { color: #ffc6c6; background: #522222; }
+
+.problems-list { max-height: 180px; overflow: auto; border-top: 1px solid var(--line); margin-top: 8px; }
+.problem-item { padding: 8px 10px; border-bottom: 1px solid #20304b; color: #f8d4a5; }
+.problem-time { color: var(--muted); font-size: 11px; margin-top: 4px; }
