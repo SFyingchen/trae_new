@@ -9,6 +9,7 @@ const {
   runSingleAgentStep,
   createAgentSession,
   generateAgentStepForSession,
+  advanceAgentSession,
   compactSession,
   executeAgentActions
 } = require('./src/core/agent/engine');
@@ -353,6 +354,19 @@ ${JSON.stringify(actionResults).slice(0, 2000)}`;
         saveFile: saveFileWithSnapshot,
         runTerminal: runTerminalCommand
       });
+      return sendJson(res, 200, { session: compactSession(session) });
+    }
+
+
+    if (req.method === 'POST' && req.url === '/api/agent/session/auto') {
+      const data = await readJson(req);
+      const session = getSessionOrThrow(data.sessionId);
+      if (session.status === 'waiting_approval') return sendJson(res, 400, { error: 'pending actions require approval first' });
+      await advanceAgentSession(session, {
+        chatWithProvider: (payload) => chatWithProvider({ ollamaBaseUrl: OLLAMA_BASE_URL, ...payload }),
+        saveFile: saveFileWithSnapshot,
+        runTerminal: runTerminalCommand
+      }, { maxIterations: Number(data.maxIterations || 3) });
       return sendJson(res, 200, { session: compactSession(session) });
     }
 

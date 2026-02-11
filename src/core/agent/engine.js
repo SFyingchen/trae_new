@@ -146,6 +146,17 @@ async function generateAgentStepForSession(session, deps = {}) {
   return session;
 }
 
+
+async function advanceAgentSession(session, deps = {}, opts = {}) {
+  const maxIterations = Math.max(1, Math.min(6, Number(opts.maxIterations || 2)));
+  for (let i = 0; i < maxIterations; i += 1) {
+    if (session.done || session.status === 'stopped' || session.status === 'waiting_approval') break;
+    await generateAgentStepForSession(session, deps);
+    if (session.status === 'waiting_approval' || session.done) break;
+  }
+  return session;
+}
+
 function compactSession(session) {
   return {
     id: session.id,
@@ -174,6 +185,7 @@ module.exports = {
   runSingleAgentStep,
   createAgentSession,
   generateAgentStepForSession,
+  advanceAgentSession,
   compactSession,
   executeAgentActions
 };

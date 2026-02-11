@@ -83,6 +83,7 @@ const agentRunTrace = el('agentRunTrace');
 const agentRequireApproval = el('agentRequireApproval');
 const agentSessionStartBtn = el('agentSessionStart');
 const agentSessionNextBtn = el('agentSessionNext');
+const agentSessionAutoBtn = el('agentSessionAuto');
 const agentSessionApproveBtn = el('agentSessionApprove');
 const agentSessionRejectBtn = el('agentSessionReject');
 const agentSessionStopBtn = el('agentSessionStop');
@@ -356,7 +357,7 @@ function renderAgentSessions(sessions = []) {
     agentSessionsEl.innerHTML = '暂无会话';
     return;
   }
-  agentSessionsEl.innerHTML = sessions.map((session) => `<div class="task-item"><button data-sid="${escapeHtml(session.id)}">载入</button> <strong>${escapeHtml(session.id)}</strong> [${escapeHtml(session.status)}] Step ${session.step}/${session.maxSteps}<div>${escapeHtml(session.goal || '')}</div></div>`).join('');
+  agentSessionsEl.innerHTML = sessions.map((session) => `<div class="task-item"><button data-sid="${escapeHtml(session.id)}">载入</button> <strong>${escapeHtml(session.id)}</strong> <span class="status-pill status-${escapeHtml(session.status)}">${escapeHtml(session.status)}</span> Step ${session.step}/${session.maxSteps}<div>${escapeHtml(session.goal || '')}</div></div>`).join('');
   agentSessionsEl.querySelectorAll('button[data-sid]').forEach((btn) => {
     btn.onclick = () => {
       agentSessionIdInput.value = btn.dataset.sid;
@@ -494,6 +495,15 @@ async function nextAgentSessionStep() {
   const res = await api('/api/agent/session/next', { method: 'POST', body: JSON.stringify({ sessionId }) });
   renderCurrentAgentSession(res.session || null);
   await refreshAgentSessions();
+}
+
+async function autoAdvanceAgentSession() {
+  const sessionId = agentSessionIdInput.value.trim();
+  if (!sessionId) return alert('请先选择或输入 session id');
+  const res = await api('/api/agent/session/auto', { method: 'POST', body: JSON.stringify({ sessionId, maxIterations: 4 }) });
+  renderCurrentAgentSession(res.session || null);
+  await refreshAgentSessions();
+  await loadTree();
 }
 
 async function approveAgentSessionStep() {
@@ -855,6 +865,7 @@ const commands = [
   { name: 'Agent 自动执行N步', run: () => agentRunBtn.click() },
   { name: 'Agent 会话: 开始', run: () => agentSessionStartBtn.click() },
   { name: 'Agent 会话: 下一步', run: () => agentSessionNextBtn.click() },
+  { name: 'Agent 会话: 自动推进', run: () => agentSessionAutoBtn.click() },
   { name: '解析多文件建议', run: () => parseMultiFileBtn.click() },
   { name: '批量应用多文件建议', run: () => applyMultiFileBtn.click() },
   { name: '切换终端', run: () => toggleTerminalBtn.click() },
@@ -920,6 +931,7 @@ agentApplyBtn.onclick = () => applyAgentActions().catch((e) => alert(`应用 Age
 agentRunBtn.onclick = () => runAgentAuto().catch((e) => notify(`Agent 自动执行失败: ${e.message}`));
 agentSessionStartBtn.onclick = () => startAgentSession().catch((e) => notify(`Agent 会话启动失败: ${e.message}`));
 agentSessionNextBtn.onclick = () => nextAgentSessionStep().catch((e) => notify(`Agent 会话继续失败: ${e.message}`));
+agentSessionAutoBtn.onclick = () => autoAdvanceAgentSession().catch((e) => notify(`会话自动推进失败: ${e.message}`));
 agentSessionApproveBtn.onclick = () => approveAgentSessionStep().catch((e) => notify(`批准动作失败: ${e.message}`));
 agentSessionRejectBtn.onclick = () => rejectAgentSessionStep().catch((e) => notify(`拒绝动作失败: ${e.message}`));
 agentSessionStopBtn.onclick = () => stopAgentSession().catch((e) => notify(`停止会话失败: ${e.message}`));
