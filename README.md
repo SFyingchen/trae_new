@@ -145,3 +145,10 @@ ollama pull qwen2.5-coder:7b
   - `src/core/agent/executor.js`（动作执行器）
 - `server.js` 负责路由编排，核心逻辑在 `src/core` 下维护，便于后续继续对齐 Cline 的 core 设计。
 
+
+
+## Trae Cue（快捷意图）
+
+- 新增 Cue 面板：一键触发“解释/修复/优化/测试/重构”等意图。
+- 支持自定义 Cue 文本并直接调用当前 AI 对话链路。
+- 支持 AI 自动生成 Cue 建议（`/api/cue/suggest`）。

@@ -108,6 +108,23 @@
         <label><input type="checkbox" id="ctxTree" checked /> 文件树上下文</label>
         <label><input type="checkbox" id="ctxSearch" /> 搜索上下文</label>
       </div>
+      <section class="cue-panel">
+        <h3>Trae Cue（快捷意图）</h3>
+        <div class="cue-actions" id="cueTemplates">
+          <button data-cue="explain">解释当前代码</button>
+          <button data-cue="fix">修复当前问题</button>
+          <button data-cue="optimize">优化性能/可读性</button>
+          <button data-cue="tests">为当前文件补测试</button>
+          <button data-cue="refactor">按模块重构当前文件</button>
+        </div>
+        <div class="cue-actions">
+          <input id="cueInput" placeholder="输入自定义 Cue，例如：把这个函数改成纯函数并补类型注释" />
+          <button id="runCue">执行 Cue</button>
+          <button id="suggestCue">AI 生成 Cue 建议</button>
+        </div>
+        <div id="cueSuggestions" class="task-list">暂无 Cue 建议</div>
+      </section>
+
       <section class="agent-panel">
         <h3>AI Agent 助手</h3>
         <div class="agent-actions">

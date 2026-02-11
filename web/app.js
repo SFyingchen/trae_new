@@ -64,6 +64,11 @@ const gitOutput = el('gitOutput');
 const problemsPanel = el('problemsPanel');
 const problemsList = el('problemsList');
 const clearProblemsBtn = el('clearProblems');
+const cueTemplates = el('cueTemplates');
+const cueInput = el('cueInput');
+const runCueBtn = el('runCue');
+const suggestCueBtn = el('suggestCue');
+const cueSuggestions = el('cueSuggestions');
 const parseMultiFileBtn = el('parseMultiFile');
 const applyMultiFileBtn = el('applyMultiFile');
 const multiFileList = el('multiFileList');
@@ -330,6 +335,67 @@ function buildContext() {
   if (ctxSearch.checked) contexts.push(`搜索结果:\n${JSON.stringify(latestSearch).slice(0, 2000)}`);
   if (taskPlan.length) contexts.push(`任务计划:\n${taskPlan.map((t, i) => `${i + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n')}`);
   return contexts.join('\n\n');
+}
+
+
+const cuePromptTemplates = {
+  explain: '请解释当前文件的核心逻辑、关键数据流和潜在风险。',
+  fix: '请定位当前文件中最可能出问题的点并给出可直接应用的修复代码。',
+  optimize: '请在不改变行为前提下优化当前文件性能和可读性，并给出完整更新代码。',
+  tests: '请为当前文件生成关键测试用例，优先覆盖边界条件与错误分支。',
+  refactor: '请把当前文件按功能模块重构，结构更清晰，保持行为一致。'
+};
+
+function setCuePrompt(text) {
+  promptInput.value = text;
+  promptInput.focus();
+}
+
+async function runCue(text) {
+  const cue = String(text || '').trim();
+  if (!cue) return;
+  const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd).trim();
+  const selectionHint = selected ? `
+
+当前选中代码:
+${selected.slice(0, 1800)}` : '';
+  setCuePrompt(`[Cue] ${cue}${selectionHint}`);
+  askAIBtn.click();
+}
+
+function renderCueSuggestions(items = []) {
+  if (!Array.isArray(items) || !items.length) {
+    cueSuggestions.innerHTML = '暂无 Cue 建议';
+    return;
+  }
+  cueSuggestions.innerHTML = items.map((it, i) => `<div class="task-item"><button data-cuei="${i}">使用</button> ${escapeHtml(String(it))}</div>`).join('');
+  cueSuggestions.querySelectorAll('button[data-cuei]').forEach((btn) => {
+    btn.onclick = () => {
+      const idx = Number(btn.dataset.cuei);
+      const text = String(items[idx] || '');
+      cueInput.value = text;
+      runCue(text).catch((e) => notify(`Cue 执行失败: ${e.message}`));
+    };
+  });
+}
+
+async function suggestCueItems() {
+  const model = modelSelect.value;
+  if (!model) return alert('请先选择模型');
+  const path = filePathInput.value.trim() || 'untitled.txt';
+  const code = editor.value.slice(0, 4000);
+  const res = await api('/api/cue/suggest', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...currentProviderPayload(),
+      model,
+      path,
+      code,
+      context: buildContext(),
+      options: { temperature: 0.2 }
+    })
+  });
+  renderCueSuggestions(res.suggestions || []);
 }
 
 function makeSimpleDiff(a, b) {
@@ -902,6 +968,8 @@ const commands = [
   { name: '打开Git面板', run: () => openGit.click() },
   { name: '打开Problems', run: () => problemsPanel.classList.toggle('hidden') },
   { name: '请求AI建议', run: () => askAIBtn.click() },
+  { name: 'Cue: 解释当前代码', run: () => runCue(cuePromptTemplates.explain) },
+  { name: 'Cue: 修复当前问题', run: () => runCue(cuePromptTemplates.fix) },
   { name: '打开设置', run: () => openSettingsBtn.click() },
 ];
 
@@ -968,6 +1036,16 @@ agentSessionRejectBtn.onclick = () => rejectAgentSessionStep().catch((e) => noti
 agentSessionStopBtn.onclick = () => stopAgentSession().catch((e) => notify(`停止会话失败: ${e.message}`));
 agentSessionRefreshBtn.onclick = () => refreshAgentSessions().catch((e) => notify(`刷新会话失败: ${e.message}`));
 clearProblemsBtn.onclick = () => { problems.length = 0; renderProblems(); };
+cueTemplates.querySelectorAll('button[data-cue]').forEach((btn) => {
+  btn.onclick = () => {
+    const key = btn.dataset.cue;
+    const text = cuePromptTemplates[key] || '';
+    cueInput.value = text;
+    runCue(text).catch((e) => notify(`Cue 执行失败: ${e.message}`));
+  };
+});
+runCueBtn.onclick = () => runCue(cueInput.value).catch((e) => notify(`Cue 执行失败: ${e.message}`));
+suggestCueBtn.onclick = () => suggestCueItems().catch((e) => notify(`Cue 建议生成失败: ${e.message}`));
 
 editor.addEventListener('input', () => {
   markDirty(true);

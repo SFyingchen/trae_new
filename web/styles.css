@@ -78,3 +78,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .problems-list { max-height: 180px; overflow: auto; border-top: 1px solid var(--line); margin-top: 8px; }
 .problem-item { padding: 8px 10px; border-bottom: 1px solid #20304b; color: #f8d4a5; }
 .problem-time { color: var(--muted); font-size: 11px; margin-top: 4px; }
+
+.cue-panel { border-top: 1px solid var(--line); padding: 10px; background: #0d1a30; }
+.cue-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+#cueInput { flex: 1; min-width: 220px; }

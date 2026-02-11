@@ -479,6 +479,46 @@ ${cursorContext}
       return sendJson(res, 200, { suggestion });
     }
 
+
+    if (req.method === 'POST' && req.url === '/api/cue/suggest') {
+      const data = await readJson(req);
+      if (!data.model) return sendJson(res, 400, { error: 'model is required' });
+      const response = await chatWithProvider({
+        ollamaBaseUrl: OLLAMA_BASE_URL,
+        model: data.model,
+        provider: data.provider || 'ollama',
+        providerConfig: data.providerConfig || {},
+        options: data.options || {},
+        messages: [
+          {
+            role: 'system',
+            content: '你是 IDE 的 Cue 建议器。只返回 JSON 数组，每个元素是可直接执行的简短中文意图，不要输出其他内容。'
+          },
+          {
+            role: 'user',
+            content: `文件路径: ${String(data.path || 'untitled.txt')}
+
+代码:
+${String(data.code || '').slice(0, 5000)}
+
+上下文:
+${String(data.context || '').slice(0, 2000)}
+
+请给出 5 条最有价值的 Cue 建议。`
+          }
+        ]
+      });
+      const text = response?.message?.content || '[]';
+      let suggestions = [];
+      try {
+        suggestions = JSON.parse(text);
+      } catch {
+        suggestions = text.split(/[\n；;]+/).map((x) => x.trim()).filter(Boolean);
+      }
+      if (!Array.isArray(suggestions)) suggestions = [];
+      return sendJson(res, 200, { suggestions: suggestions.map(String).filter(Boolean).slice(0, 8) });
+    }
+
     if (req.method === 'POST' && req.url === '/api/diagnose-error') {
       const data = await readJson(req);
       if (!data.model) return sendJson(res, 400, { error: 'model is required' });
